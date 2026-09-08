@@ -1,6 +1,6 @@
 # Havenerr Admin Control Panel
 
-The Vercel hosted administrative control panel for `controlpanel.havenerr.com`.
+The Vercel hosted administrative control panel for `controlpanel.havenerr.info`.
 
 The browser talks only to the documented `https://api.havenerr.com/admin/v1` boundary. Admin
 sessions remain opaque `HttpOnly` cookies; the readable `hv_admin_csrf` cookie is echoed for

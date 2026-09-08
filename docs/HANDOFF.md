@@ -3,6 +3,14 @@
 Entries are newest first. Backend contract/implementation evidence is maintained in the sibling
 repository `D:\API - Havenerr`; this continuation was explicitly approved to update both repositories.
 
+## 2026-09-08 - Codex - private admin-origin configuration
+
+The frontend no longer declares or reads `NEXT_PUBLIC_HAVENERR_ADMIN_ORIGIN`. Because the
+administrator page is a Client Component, renaming that variable to a private server-only env name
+would make it unavailable in the browser. Invitation URLs now derive their origin from
+`window.location.origin`, with the `.info` hostname as the server-render fallback. The public API
+base variable remains intentionally public because browser requests must know the API origin.
+
 ## 2026-09-08 - Codex - M24 continuation verification and read-only feedback hardening
 
 Status: local frontend/backend feature work complete; live backend/API/CORS/cookie, Redis,

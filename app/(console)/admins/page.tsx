@@ -40,11 +40,9 @@ const roles: AdminRole[] = [
 ];
 
 function configuredAdminOrigin(): string {
-  const configured = process.env.NEXT_PUBLIC_HAVENERR_ADMIN_ORIGIN?.replace(/\/$/, "");
-  if (configured) return configured;
   return typeof window !== "undefined"
     ? window.location.origin
-    : "https://controlpanel.havenerr.com";
+    : "https://controlpanel.havenerr.info";
 }
 
 function InviteDialog({

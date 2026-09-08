@@ -1,8 +1,9 @@
 # Havenerr admin frontend progress
 
 Evidence snapshot: 2026-09-08. This repository is the separate Vercel frontend for
-`https://controlpanel.havenerr.com`. The backend contract remains the authoritative
-`https://api.havenerr.com/admin/v1` surface documented in the sibling API repository.
+`https://controlpanel.havenerr.info`. The backend contract remains the authoritative
+`https://api.havenerr.com/admin/v1` surface documented in the sibling API repository. The active
+frontend hostname is `https://controlpanel.havenerr.info`.
 
 | Milestone                            | Status                       | Evidence                                                                                                                                                                            | Next gate                                                                                                   |
 | ------------------------------------ | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
