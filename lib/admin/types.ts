@@ -146,6 +146,14 @@ export interface OrganizationDetail {
   org: OrganizationSummary & Record<string, unknown>;
 }
 
+export interface CustomerFeedbackSummary {
+  id: string;
+  user_id: string;
+  stars: number;
+  message: string;
+  created_at: string;
+}
+
 export interface CatalogueRevision {
   id: string;
   revision: number;

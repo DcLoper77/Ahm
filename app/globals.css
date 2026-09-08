@@ -1311,6 +1311,31 @@ a.stat-card:hover {
   margin-top: 3px;
   color: var(--muted-light);
 }
+.feedback-stars {
+  display: inline-flex;
+  gap: 2px;
+  color: var(--line-strong);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+.feedback-stars .is-filled {
+  color: #c88618;
+}
+.feedback-detail-rating {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.feedback-detail-rating .feedback-stars {
+  font-size: 22px;
+}
+.feedback-message {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--ink-soft);
+  font-size: 14px;
+  line-height: 1.7;
+}
 .danger-callout {
   display: flex;
   gap: 9px;

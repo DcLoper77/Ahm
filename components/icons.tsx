@@ -2,6 +2,7 @@ import type { SVGProps } from "react";
 
 export type IconName =
   | "spark"
+  | "star"
   | "users"
   | "building"
   | "layers"
@@ -53,6 +54,7 @@ const paths: Record<IconName, React.ReactNode> = {
   spark: (
     <path d="m12 2 1.45 6.55L20 10l-6.55 1.45L12 18l-1.45-6.55L4 10l6.55-1.45L12 2Zm6.4 13.2.65 2.75 2.75.65-2.75.65-.65 2.75-.65-2.75-2.75-.65 2.75-.65.65-2.75Z" />
   ),
+  star: <path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9L12 3Z" />,
   users: (
     <>
       <path d="M16 21v-1.5a4.5 4.5 0 0 0-4.5-4.5h-5A4.5 4.5 0 0 0 2 19.5V21" />

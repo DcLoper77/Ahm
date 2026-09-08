@@ -25,6 +25,13 @@ export const NAV_SECTIONS: NavSection[] = [
         icon: "spark",
         permissions: ["analytics.read", "system.read"],
       },
+      {
+        href: "/feedback",
+        label: "Customer feedback",
+        description: "Ratings and messages submitted by customers",
+        icon: "star",
+        permissions: ["analytics.read"],
+      },
     ],
   },
   {

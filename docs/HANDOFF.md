@@ -2,6 +2,40 @@
 
 Entries are newest first. The backend repository is read-only for this project.
 
+## 2026-09-08 - Codex - M24 customer feedback read-only admin projection
+
+Status: local backend/frontend implementation complete; live migration, customer-main-website,
+CORS, and deployment proof held.
+
+Pages/components/API modules: the main website submits `POST /v1/feedback`; the admin panel reads
+`GET /admin/v1/feedback` and `GET /admin/v1/feedback/{feedback_id}` through the new `/feedback` and
+`/feedback/[id]` pages. Backend migration `0037_customer_feedback`, `fbk_` IDs, feedback repository,
+service, customer route, admin route, signed cursors, OpenAPI, and API docs are implemented.
+
+Permission/step-up/destructive decisions: customer submission is authenticated, CSRF/idempotency
+protected, bounded to 1–5 stars and 2,000 characters, and rate-limited per user. Admin reads use
+`analytics.read` and are strictly read-only. The admin projection contains only feedback id,
+pseudonymous customer id, stars, message, and creation timestamp. No admin submit/edit/delete or
+moderation control exists.
+
+Commands/tests/browser evidence: backend typecheck, lint, 259-file unit suite with 1,415 tests, and
+OpenAPI drift check pass; frontend typecheck, lint, format, unit, build, and Playwright desktop/mobile
+mock tests (18/18) pass. The frontend mock verifies the feedback list/detail flow and that no admin
+write control is rendered. The backend unit coverage includes migration, repository, service, route
+permission manifest, and cursor behavior.
+
+Deployment URL/environment and limitations: no production database migration or live customer
+submission was run. The main website repository is outside the current frontend repository; it must
+call the documented customer route. No Vercel preview or production deployment is claimed.
+
+Known failures/rollback: no local check failures remain. Migration 0037 is forward-only and must be
+applied through the normal migration runner after review/backup. Customer feedback messages must not
+be copied to analytics or logs.
+
+Next agent: apply migration 0037 in a controlled environment, submit a real customer feedback
+request with CSRF/idempotency/rate-limit checks, verify analytics.read role access and signed cursor
+admin reads, then run live frontend smoke and deploy the preview.
+
 ## 2026-09-08 - Codex - AF-0 through AF-5 local hardening and contract coverage
 
 Status: local implementation and verification complete; AF-5 remains held because live backend,

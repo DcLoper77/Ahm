@@ -14,6 +14,7 @@ import type {
   CatalogueRevision,
   CustomerUserDetail,
   CustomerUserSummary,
+  CustomerFeedbackSummary,
   OrganizationDetail,
   OrganizationSummary,
   PlanDraftItem,
@@ -224,6 +225,12 @@ export interface AdminResourceApi {
   analytics: {
     usage(): Promise<ApiResult<AdminRecord>>;
     organizationUsage(orgId: string): Promise<ApiResult<AdminRecord>>;
+  };
+  feedback: {
+    list(
+      query?: AdminListQuery,
+    ): Promise<ApiResult<{ feedback: CustomerFeedbackSummary[]; next_cursor: string | null }>>;
+    detail(id: string): Promise<ApiResult<{ feedback: CustomerFeedbackSummary }>>;
   };
   audit: {
     list(
@@ -637,6 +644,24 @@ export function createAdminApi(client: AdminApiClient): AdminAuthApi & AdminReso
     analytics: {
       usage: () => client.get<AdminRecord>("/usage"),
       organizationUsage: (id) => client.get<AdminRecord>(`/usage/orgs/${encodeSegment(id)}`),
+    },
+    feedback: {
+      list: (query) =>
+        client.get<{ feedback: CustomerFeedbackSummary[]; next_cursor: string | null }>(
+          "/feedback",
+          pickQuery(query, [
+            "cursor",
+            "limit",
+            "stars",
+            "user_id",
+            "from",
+            "to",
+            "sort_by",
+            "sort_order",
+          ]),
+        ),
+      detail: (id) =>
+        client.get<{ feedback: CustomerFeedbackSummary }>(`/feedback/${encodeSegment(id)}`),
     },
     audit: {
       list: (query) =>

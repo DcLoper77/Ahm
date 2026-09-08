@@ -98,6 +98,35 @@ async function mockAdminApi(page: Page, role: Role = "ROOT", options: { stepUp?:
         }),
       );
     if (path.endsWith("/audit")) return fulfill(200, envelope({ audit: [], next_cursor: null }));
+    if (path.match(/\/feedback\/fbk_/))
+      return fulfill(
+        200,
+        envelope({
+          feedback: {
+            id: "fbk_e2e",
+            user_id: "usr_e2e",
+            stars: 5,
+            message: "The main website is clear and easy to use.",
+            created_at: "2026-09-08T12:00:00.000Z",
+          },
+        }),
+      );
+    if (path.endsWith("/feedback"))
+      return fulfill(
+        200,
+        envelope({
+          feedback: [
+            {
+              id: "fbk_e2e",
+              user_id: "usr_e2e",
+              stars: 5,
+              message: "The main website is clear and easy to use.",
+              created_at: "2026-09-08T12:00:00.000Z",
+            },
+          ],
+          next_cursor: null,
+        }),
+      );
     if (path.endsWith("/features") && method === "GET")
       return fulfill(200, envelope({ features: [{ key: "hosting", enabled: true, version: 1 }] }));
     if (path.includes("/features/hosting") && method === "PATCH") {
@@ -220,6 +249,19 @@ test("audit and operations navigation resolve to implemented protected routes", 
   await page.goto("/system");
   await expect(page.getByRole("heading", { name: "Operations" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Health" })).toBeVisible();
+});
+
+test("customer feedback is a read-only admin projection", async ({ page }) => {
+  await mockAdminApi(page);
+  await signIn(page);
+  await page.goto("/feedback");
+  await expect(page.getByRole("heading", { name: "Customer feedback" })).toBeVisible();
+  await expect(page.getByText("The main website is clear and easy to use.")).toBeVisible();
+  await expect(page.getByText("Read only").first()).toBeVisible();
+  await expect(page.getByRole("button", { name: /Submit|Create|Save/ })).toHaveCount(0);
+  await page.getByRole("link", { name: /The main website is clear/ }).click();
+  await expect(page).toHaveURL(/\/feedback\/fbk_e2e$/);
+  await expect(page.getByRole("heading", { name: "Feedback detail" })).toBeVisible();
 });
 
 test("security headers protect the control-panel document", async ({ request }) => {
