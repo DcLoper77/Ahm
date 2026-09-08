@@ -191,3 +191,18 @@ Remaining work
 
 Do not deploy. Completion means local implementation, tests, documentation, commits, and pushes are
 complete and accurately reported.
+
+## Continuation execution record — 2026-09-08
+
+The continuation audit found and fixed a default-list feedback cursor SQL defect: page two now
+builds a valid keyset predicate when no filters are present. The admin list also exposes sort order
+and resets the opaque cursor when filters or sorting change. Browser coverage now verifies the
+strictly read-only surface, escaped messages at the 2,000-character bound, narrow-width wrapping, keyboard
+focus visibility, and signed-cursor reset behavior on desktop and mobile.
+
+The backend typed permission catalogue and migration 0038 grant `analytics.read` to
+`PLATFORM_ADMIN`, matching the required `ROOT`/`PLATFORM_ADMIN`/`ANALYST` feedback-read boundary.
+Migration 0037 was applied only through the normal runner to the loopback development MySQL database;
+migration 0038 was not applied during that 0037-only check. Redis is unavailable locally, so the
+remaining live customer/session/rate-limit/CORS/API proof is explicitly held. No deployment or
+production proof is claimed.

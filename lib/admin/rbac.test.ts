@@ -13,6 +13,7 @@ describe("admin role permissions", () => {
       "quotas.write",
     ]);
     expect(hasPermission(["ANALYST"], "analytics.read")).toBe(true);
+    expect(hasPermission(["PLATFORM_ADMIN"], "analytics.read")).toBe(true);
     expect(hasPermission(["ANALYST"], "users.read")).toBe(false);
     expect(hasPermission(["PLATFORM_ADMIN"], "billing.read")).toBe(false);
     expect(hasPermission(["ROOT"], "billing.write")).toBe(true);

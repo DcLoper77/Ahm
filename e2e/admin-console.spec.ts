@@ -20,14 +20,22 @@ function errorEnvelope(code: string, retryable = false, details?: unknown) {
   };
 }
 
-async function mockAdminApi(page: Page, role: Role = "ROOT", options: { stepUp?: boolean } = {}) {
+async function mockAdminApi(
+  page: Page,
+  role: Role = "ROOT",
+  options: { stepUp?: boolean; longFeedback?: boolean } = {},
+) {
   const state = {
     authenticated: false,
     csrfFailureUsed: false,
     stepUpFailureUsed: false,
     expireUsers: false,
     mutationHeaders: [] as Record<string, string>[],
+    feedbackRequests: [] as string[],
   };
+  const feedbackMessage = options.longFeedback
+    ? `<script>not executable</script>${"x".repeat(1940)}`
+    : "The main website is clear and easy to use.";
   await page
     .context()
     .addCookies([{ name: "hv_admin_csrf", value: "browser-csrf", domain: "localhost", path: "/" }]);
@@ -106,12 +114,14 @@ async function mockAdminApi(page: Page, role: Role = "ROOT", options: { stepUp?:
             id: "fbk_e2e",
             user_id: "usr_e2e",
             stars: 5,
-            message: "The main website is clear and easy to use.",
+            message: feedbackMessage,
             created_at: "2026-09-08T12:00:00.000Z",
           },
         }),
       );
-    if (path.endsWith("/feedback"))
+    if (path.endsWith("/feedback")) {
+      state.feedbackRequests.push(url.search);
+      const hasCursor = url.searchParams.has("cursor");
       return fulfill(
         200,
         envelope({
@@ -120,13 +130,14 @@ async function mockAdminApi(page: Page, role: Role = "ROOT", options: { stepUp?:
               id: "fbk_e2e",
               user_id: "usr_e2e",
               stars: 5,
-              message: "The main website is clear and easy to use.",
+              message: feedbackMessage,
               created_at: "2026-09-08T12:00:00.000Z",
             },
           ],
-          next_cursor: null,
+          next_cursor: hasCursor ? null : "cursor-e2e-1",
         }),
       );
+    }
     if (path.endsWith("/features") && method === "GET")
       return fulfill(200, envelope({ features: [{ key: "hosting", enabled: true, version: 1 }] }));
     if (path.includes("/features/hosting") && method === "PATCH") {
@@ -262,6 +273,66 @@ test("customer feedback is a read-only admin projection", async ({ page }) => {
   await page.getByRole("link", { name: /The main website is clear/ }).click();
   await expect(page).toHaveURL(/\/feedback\/fbk_e2e$/);
   await expect(page.getByRole("heading", { name: "Feedback detail" })).toBeVisible();
+});
+
+test("feedback filters reset signed cursors and long messages stay safe on narrow screens", async ({
+  page,
+}) => {
+  const state = await mockAdminApi(page, "ROOT", { longFeedback: true });
+  await signIn(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/feedback");
+  await expect(page.getByRole("heading", { name: "Customer feedback" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Next", exact: true }).click();
+  await expect.poll(() => state.feedbackRequests.length).toBeGreaterThanOrEqual(2);
+  expect(new URL(`http://localhost${state.feedbackRequests[1]}`).searchParams.get("cursor")).toBe(
+    "cursor-e2e-1",
+  );
+
+  await page.getByLabel("Stars", { exact: true }).selectOption("5");
+  await page.getByLabel("Sort", { exact: true }).selectOption("stars");
+  await page.getByLabel("Order", { exact: true }).selectOption("asc");
+  await page.getByRole("button", { name: "Apply" }).click();
+  await expect.poll(() => state.feedbackRequests.length).toBeGreaterThanOrEqual(3);
+  const resetQuery = new URL(`http://localhost${state.feedbackRequests[2]}`).searchParams;
+  expect(resetQuery.has("cursor")).toBe(false);
+  expect(resetQuery.get("stars")).toBe("5");
+  expect(resetQuery.get("sort_by")).toBe("stars");
+  expect(resetQuery.get("sort_order")).toBe("asc");
+
+  await page.getByRole("link", { name: /not executable/ }).click();
+  const message = page.getByLabel("Customer message");
+  await expect(message).toContainText("<script>not executable</script>");
+  expect(await message.locator("script").count()).toBe(0);
+  expect(
+    await message.evaluate((element) => ({
+      overflowWrap: getComputedStyle(element).overflowWrap,
+      scrollWidth: element.scrollWidth,
+      clientWidth: element.clientWidth,
+    })),
+  ).toMatchObject({ overflowWrap: "anywhere" });
+  const dimensions = await message.evaluate((element) => ({
+    scrollWidth: element.scrollWidth,
+    clientWidth: element.clientWidth,
+  }));
+  expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth + 1);
+
+  await page.goto("/feedback");
+  const refresh = page.getByRole("button", { name: "Refresh", exact: true });
+  await expect(refresh).toBeEnabled();
+  await refresh.focus();
+  await page.keyboard.press("Shift+Tab");
+  await page.keyboard.press("Tab");
+  await expect(refresh).toBeFocused();
+  const focusedOutline = await refresh.evaluate((element) => ({
+    focusVisible: element.matches(":focus-visible"),
+    outlineStyle: getComputedStyle(element).outlineStyle,
+    outlineWidth: getComputedStyle(element).outlineWidth,
+  }));
+  expect(focusedOutline.focusVisible).toBe(true);
+  expect(focusedOutline?.outlineStyle).toBe("solid");
+  expect(focusedOutline?.outlineWidth).toBe("3px");
 });
 
 test("security headers protect the control-panel document", async ({ request }) => {

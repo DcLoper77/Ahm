@@ -25,6 +25,7 @@ npm run lint
 npm run format:check
 npm test
 npm run build
+npm run test:e2e
 ```
 
 Browser checks use Playwright and are intentionally contract-oriented: they mock only the public

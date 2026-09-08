@@ -13,6 +13,7 @@ export const ROLE_PERMISSIONS: Record<AdminRole, readonly AdminPermission[]> = {
     "system.write",
     "quotas.read",
     "quotas.write",
+    "analytics.read",
   ],
   SUPPORT_OPERATOR: [
     "users.read",

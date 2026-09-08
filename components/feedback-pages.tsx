@@ -237,6 +237,20 @@ export function FeedbackListPage() {
               <option value="stars">Stars</option>
             </SelectInput>
           </Field>
+          <Field label="Order">
+            <SelectInput
+              value={draft.sort_order}
+              onChange={(event) =>
+                setDraft((current) => ({
+                  ...current,
+                  sort_order: event.target.value as FeedbackFilters["sort_order"],
+                }))
+              }
+            >
+              <option value="desc">Descending</option>
+              <option value="asc">Ascending</option>
+            </SelectInput>
+          </Field>
           <div className="filter-actions">
             <Button type="submit" variant="primary">
               Apply

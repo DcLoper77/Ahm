@@ -1,6 +1,41 @@
 # Havenerr admin frontend handoff
 
-Entries are newest first. The backend repository is read-only for this project.
+Entries are newest first. Backend contract/implementation evidence is maintained in the sibling
+repository `D:\API - Havenerr`; this continuation was explicitly approved to update both repositories.
+
+## 2026-09-08 - Codex - M24 continuation verification and read-only feedback hardening
+
+Status: local frontend/backend feature work complete; live backend/API/CORS/cookie, Redis,
+customer-main-website, Vercel, and production proof held.
+
+Pages/components/API modules: `/feedback` and `/feedback/[id]` consume only the sanitized admin
+feedback list/detail routes. The list now exposes sort order, preserves opaque signed cursors, and
+resets them after filter/sort changes. The backend cursor SQL regression was fixed and
+`PLATFORM_ADMIN` was added to the `analytics.read` boundary through typed RBAC and migration 0038.
+
+Permission/step-up/destructive decisions: feedback remains strictly read-only in the dashboard;
+there is no submit, edit, delete, moderation, approval, or overwrite action. Only `ROOT`,
+`PLATFORM_ADMIN`, and `ANALYST` can inspect the projection; no customer credential, session,
+payment, provider, environment, or MFA/recovery data is rendered.
+
+Commands/tests/browser evidence: frontend typecheck, lint, format, 20 Vitest tests, production
+build, and 20 desktop/mobile Playwright tests pass. The new browser checks cover escaped long
+messages, `overflow-wrap:anywhere` and no nested script element, narrow mobile layout, keyboard
+focus visibility, page-2 cursor requests, and cursor reset with changed rating/sort/order. Backend
+typecheck/lint/build, 261-file/1,420-test suite, OpenAPI 226/213/13 checks, and SDK regeneration
+also pass.
+
+Deployment URL/environment and limitations: no deployment was performed. Loopback MySQL accepted
+migration 0037 through the normal runner and a rolled-back real repository cursor continuation;
+Redis is unavailable, so live customer/admin HTTP sessions, fail-closed rate-limit, CORS/cookie,
+main-website, provider, Vercel, and production proof are not claimed. Migration 0038 remains
+unapplied in the 0037-only local database check.
+
+Known failures/rollback: no local checks remain failing. The frontend changes are reversible local
+edits; backend migrations are forward-only and must be run through the normal migration runner.
+
+Next agent: execute the authenticated customer/admin HTTP matrix with Redis in a controlled backend
+environment, then run the frontend live smoke. Do not deploy from this handoff.
 
 ## 2026-09-08 - Codex - M24 customer feedback read-only admin projection
 
