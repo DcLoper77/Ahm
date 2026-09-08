@@ -74,6 +74,26 @@ describe("AdminApiClient", () => {
     vi.useRealTimers();
   });
 
+  it("retries an in-progress idempotent mutation with the same key", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(failure("IDEMPOTENCY_IN_PROGRESS"))
+      .mockResolvedValueOnce(success({ completed: true }));
+    const client = new AdminApiClient({ fetchImpl: fetchMock });
+    const request = client.post("/system/jobs/job_123:requeue", {});
+    await vi.advanceTimersByTimeAsync(650);
+    await expect(request).resolves.toMatchObject({ data: { completed: true } });
+    const firstKey = new Headers((fetchMock.mock.calls[0]?.[1] as RequestInit).headers).get(
+      "Idempotency-Key",
+    );
+    const secondKey = new Headers((fetchMock.mock.calls[1]?.[1] as RequestInit).headers).get(
+      "Idempotency-Key",
+    );
+    expect(secondKey).toBe(firstKey);
+    vi.useRealTimers();
+  });
+
   it("refreshes CSRF once and retries the same mutation key", async () => {
     const fetchMock = vi
       .fn()
@@ -107,6 +127,38 @@ describe("AdminApiClient", () => {
       expect(error).toBeInstanceOf(AdminApiError);
       expect((error as AdminApiError).message).not.toContain("unsafe backend text");
     }
+  });
+
+  it("requires the exact success envelope, including request_id", async () => {
+    const client = new AdminApiClient({
+      fetchImpl: vi.fn(
+        async () =>
+          new Response(JSON.stringify({ success: true, data: { ok: true } }), { status: 200 }),
+      ),
+    });
+    await expect(client.get("/auth/me")).rejects.toMatchObject({
+      code: "INTERNAL_ERROR",
+      status: 200,
+    });
+  });
+
+  it("notifies session and permission hooks without exposing backend messages", async () => {
+    const onSessionExpired = vi.fn();
+    const onPermissionDenied = vi.fn();
+    const client = new AdminApiClient({
+      fetchImpl: vi
+        .fn()
+        .mockResolvedValueOnce(failure("ADMIN_SESSION_EXPIRED", 401))
+        .mockResolvedValueOnce(failure("ADMIN_PERMISSION_DENIED", 403)),
+      hooks: { onSessionExpired, onPermissionDenied },
+    });
+    await expect(client.get("/auth/me")).rejects.toMatchObject({ code: "ADMIN_SESSION_EXPIRED" });
+    await expect(client.get("/users")).rejects.toMatchObject({
+      code: "ADMIN_PERMISSION_DENIED",
+    });
+    expect(onSessionExpired).toHaveBeenCalledOnce();
+    expect(onPermissionDenied).toHaveBeenCalledOnce();
+    expect(onPermissionDenied.mock.calls[0]?.[0]).toBeInstanceOf(AdminApiError);
   });
 
   it("reads only the browser-readable admin CSRF cookie", () => {

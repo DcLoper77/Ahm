@@ -36,11 +36,14 @@ export default function UserDetailPage() {
 
   const submitAction = async (input: { reason?: string; expected_version?: number }) => {
     if (!action || !user) return;
+    if (input.expected_version === undefined) {
+      throw new Error("The current customer version is unavailable. Refresh before retrying.");
+    }
     const response = await runMutation<Record<string, unknown>>({
       path: `/users/${encodeURIComponent(params.id)}:${action}`,
       body: {
         reason: input.reason ?? "",
-        expected_version: input.expected_version ?? user.version,
+        expected_version: input.expected_version,
       },
       step_up_action: `admin:user_${action}`,
     });
@@ -97,6 +100,8 @@ export default function UserDetailPage() {
     );
 
   const identity = user.email ?? user.masked_email ?? "Identity masked";
+  const currentVersion =
+    typeof user.version === "number" && user.version >= 1 ? user.version : undefined;
   return (
     <>
       <PageHeader
@@ -108,7 +113,7 @@ export default function UserDetailPage() {
             <Button variant="quiet" icon="chevron-left" onClick={() => router.push("/users")}>
               Back to users
             </Button>
-            {canMutate ? (
+            {canMutate && currentVersion !== undefined ? (
               <Button
                 variant={user.status === "SUSPENDED" ? "secondary" : "danger-quiet"}
                 icon={user.status === "SUSPENDED" ? "play" : "pause"}
@@ -116,6 +121,8 @@ export default function UserDetailPage() {
               >
                 {user.status === "SUSPENDED" ? "Restore access" : "Suspend access"}
               </Button>
+            ) : canMutate ? (
+              <Badge tone="warning">Waiting for current version</Badge>
             ) : null}
           </>
         }
@@ -262,7 +269,7 @@ export default function UserDetailPage() {
           }
           actionLabel={action === "suspend" ? "Suspend customer" : "Restore customer"}
           dangerous={action === "suspend"}
-          expectedVersion={user.version}
+          expectedVersion={currentVersion}
           onConfirm={submitAction}
           onClose={() => setAction(null)}
         />

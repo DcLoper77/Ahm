@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { hasPermission } from "@/lib/admin/rbac";
 import { formatDate } from "@/lib/admin/format";
-import { roleLabel } from "@/lib/admin/rbac";
+import { canGrantRole, roleLabel } from "@/lib/admin/rbac";
 import { useAdminQuery } from "@/lib/admin/hooks";
 import { useAdminSession } from "@/components/auth/session-context";
 import { ConfirmActionModal } from "@/components/confirm-action";
@@ -39,18 +39,29 @@ const roles: AdminRole[] = [
   "ANALYST",
 ];
 
+function configuredAdminOrigin(): string {
+  const configured = process.env.NEXT_PUBLIC_HAVENERR_ADMIN_ORIGIN?.replace(/\/$/, "");
+  if (configured) return configured;
+  return typeof window !== "undefined"
+    ? window.location.origin
+    : "https://controlpanel.havenerr.com";
+}
+
 function InviteDialog({
   onClose,
   onCreated,
+  grantorRoles,
 }: {
   onClose: () => void;
   onCreated: (result: AdminInvitationResult) => void;
+  grantorRoles: AdminRole[];
 }) {
   const { runMutation } = useAdminSession();
   const [email, setEmail] = useState("");
   const [selected, setSelected] = useState<AdminRole[]>(["SUPPORT_OPERATOR"]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const grantableRoles = roles.filter((role) => canGrantRole(grantorRoles, role));
   const submit = async () => {
     if (!email || !selected.length) {
       setError("Enter an email address and select at least one role.");
@@ -115,7 +126,7 @@ function InviteDialog({
         <div className="field">
           <span className="field-label">Immutable roles</span>
           <div className="role-check-grid">
-            {roles.map((role) => (
+            {grantableRoles.map((role) => (
               <label className="check-field" key={role}>
                 <input
                   type="checkbox"
@@ -133,8 +144,8 @@ function InviteDialog({
             ))}
           </div>
           <span className="field-hint">
-            The inviter can grant only roles whose complete permission set is within their own
-            authority. ROOT remains root protected.
+            Only roles whose complete immutable permission set is within your authority are shown.
+            ROOT remains root protected.
           </span>
         </div>
       </ModalForm>
@@ -202,16 +213,20 @@ export default function AdminsPage() {
         key: "actions",
         label: "",
         align: "right",
-        render: (item) =>
-          canInvite && item.status === "ACTIVE" ? (
+        render: (item) => {
+          const hasVersion = typeof item.version === "number" && item.version >= 1;
+          return canInvite && hasVersion && item.status === "ACTIVE" ? (
             <Button variant="danger-quiet" onClick={() => setDisableTarget(item)}>
               Disable
             </Button>
-          ) : canInvite && item.status === "DISABLED" ? (
+          ) : canInvite && hasVersion && item.status === "DISABLED" ? (
             <Button variant="secondary" onClick={() => setRestoreTarget(item)}>
               Restore
             </Button>
-          ) : null,
+          ) : canInvite && (item.status === "ACTIVE" || item.status === "DISABLED") ? (
+            <Badge tone="warning">Waiting for version</Badge>
+          ) : null;
+        },
       },
     ],
     [canInvite],
@@ -222,9 +237,16 @@ export default function AdminsPage() {
   };
   const disable = async (input: { expected_version?: number; reason?: string }) => {
     if (!disableTarget) return;
+    const version =
+      typeof disableTarget.version === "number" && disableTarget.version >= 1
+        ? disableTarget.version
+        : undefined;
+    if (input.expected_version === undefined && version === undefined) {
+      throw new Error("The current administrator version is unavailable. Refresh before retrying.");
+    }
     await runMutation({
       path: `/admins/${encodeURIComponent(disableTarget.id)}:disable`,
-      body: { expected_version: input.expected_version ?? disableTarget.version },
+      body: { expected_version: input.expected_version ?? version },
       step_up_action: "admin:disable_admin",
     });
     setDisableTarget(null);
@@ -232,10 +254,17 @@ export default function AdminsPage() {
   };
   const restore = async (input: { expected_version?: number }) => {
     if (!restoreTarget) return;
+    const version =
+      typeof restoreTarget.version === "number" && restoreTarget.version >= 1
+        ? restoreTarget.version
+        : undefined;
+    if (input.expected_version === undefined && version === undefined) {
+      throw new Error("The current administrator version is unavailable. Refresh before retrying.");
+    }
     await runMutation({
       method: "PATCH",
       path: `/admins/${encodeURIComponent(restoreTarget.id)}`,
-      body: { expected_version: input.expected_version ?? restoreTarget.version, status: "ACTIVE" },
+      body: { expected_version: input.expected_version ?? version, status: "ACTIVE" },
       step_up_action: "admin:restore_admin",
     });
     setRestoreTarget(null);
@@ -295,7 +324,7 @@ export default function AdminsPage() {
           <div className="detail-section">
             <Field label="Invitation URL">
               <CopyValue
-                value={`${typeof window !== "undefined" ? window.location.origin : "https://controlpanel.havenerr.com"}/invite/${inviteResult.token}`}
+                value={`${configuredAdminOrigin()}/invite/${inviteResult.token}`}
                 label="Copy invitation URL"
               />
             </Field>
@@ -355,29 +384,36 @@ export default function AdminsPage() {
             />
           ) : invitations.length ? (
             <div className="invitation-list">
-              {invitations.map((invitation: AdminInvitationSummary) => (
-                <div className="invitation-row" key={invitation.id ?? invitation.invitation_id}>
-                  <div>
-                    <strong>{invitation.email}</strong>
-                    <span>{invitation.roles.map(roleLabel).join(" · ")}</span>
+              {invitations.map((invitation: AdminInvitationSummary) => {
+                const invitationId = invitation.id ?? invitation.invitation_id;
+                return (
+                  <div className="invitation-row" key={invitationId ?? invitation.email}>
+                    <div>
+                      <strong>{invitation.email}</strong>
+                      <span>{invitation.roles.map(roleLabel).join(" · ")}</span>
+                    </div>
+                    <div>
+                      <small>Expires {formatDate(invitation.expires_at)}</small>
+                      {invitationId ? (
+                        <Button
+                          variant="danger-quiet"
+                          onClick={() =>
+                            void runMutation({
+                              path: `/invitations/${encodeURIComponent(invitationId)}:revoke`,
+                              body: {},
+                              step_up_action: "admin:revoke_invitation",
+                            }).then(refresh)
+                          }
+                        >
+                          Revoke
+                        </Button>
+                      ) : (
+                        <Badge tone="warning">Missing invitation ID</Badge>
+                      )}
+                    </div>
                   </div>
-                  <div>
-                    <small>Expires {formatDate(invitation.expires_at)}</small>
-                    <Button
-                      variant="danger-quiet"
-                      onClick={() =>
-                        void runMutation({
-                          path: `/invitations/${encodeURIComponent(invitation.id ?? invitation.invitation_id ?? "")}:revoke`,
-                          body: {},
-                          step_up_action: "admin:revoke_invitation",
-                        }).then(refresh)
-                      }
-                    >
-                      Revoke
-                    </Button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           ) : (
             <QueryEmpty
@@ -388,7 +424,11 @@ export default function AdminsPage() {
         </Card>
       </div>
       {inviteOpen ? (
-        <InviteDialog onClose={() => setInviteOpen(false)} onCreated={setInviteResult} />
+        <InviteDialog
+          onClose={() => setInviteOpen(false)}
+          onCreated={setInviteResult}
+          grantorRoles={admin?.roles ?? []}
+        />
       ) : null}
       {disableTarget ? (
         <ConfirmActionModal

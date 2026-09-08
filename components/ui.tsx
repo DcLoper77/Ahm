@@ -6,6 +6,7 @@ import {
   isValidElement,
   useEffect,
   useId,
+  useRef,
   type FormEvent,
   type ReactNode,
 } from "react";
@@ -243,7 +244,12 @@ export function DataTable<T>({
   onRowClick?: (row: T) => void;
 }) {
   return (
-    <div className="table-wrap">
+    <div
+      className="table-wrap"
+      role="region"
+      aria-label={`${caption} table. Use horizontal scrolling on narrow screens.`}
+      tabIndex={0}
+    >
       <table className="data-table">
         <caption className="sr-only">{caption}</caption>
         <thead>
@@ -316,12 +322,14 @@ export function Field({
   error,
   children,
   htmlFor,
+  staticContent = false,
 }: {
   label: string;
   hint?: string;
   error?: string;
   children: ReactNode;
   htmlFor?: string;
+  staticContent?: boolean;
 }) {
   const generatedId = useId();
   const controlId = htmlFor ?? generatedId;
@@ -331,7 +339,11 @@ export function Field({
       : children;
   return (
     <div className="field">
-      <label htmlFor={controlId}>{label}</label>
+      {staticContent ? (
+        <span className="field-label">{label}</span>
+      ) : (
+        <label htmlFor={controlId}>{label}</label>
+      )}
       {control}
       {hint ? <span className="field-hint">{hint}</span> : null}
       {error ? <span className="field-error">{error}</span> : null}
@@ -365,9 +377,54 @@ export function Modal({
   size?: "small" | "medium" | "large";
 }) {
   const titleId = useId();
+  const descriptionId = useId();
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+  const previouslyFocused = useRef<HTMLElement | null>(
+    typeof document !== "undefined" && document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null,
+  );
+
   useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
+    const focusOrigin = previouslyFocused.current;
+    const dialog = dialogRef.current;
+    const focusableSelector =
+      "button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex='-1'])";
+    const focusFirst = () => {
+      const first = dialog?.querySelector<HTMLElement>(
+        `${focusableSelector}[autofocus], ${focusableSelector}`,
+      );
+      first?.focus();
+    };
+    focusFirst();
+
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onCloseRef.current();
+        return;
+      }
+      if (event.key !== "Tab" || !dialog) return;
+      const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(focusableSelector));
+      if (!focusable.length) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     };
     document.addEventListener("keydown", onKeyDown);
     const originalOverflow = document.body.style.overflow;
@@ -375,8 +432,9 @@ export function Modal({
     return () => {
       document.removeEventListener("keydown", onKeyDown);
       document.body.style.overflow = originalOverflow;
+      focusOrigin?.focus();
     };
-  }, [onClose]);
+  }, []);
   return (
     <div
       className="modal-backdrop"
@@ -387,14 +445,17 @@ export function Modal({
     >
       <div
         className={`modal modal-${size}`}
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
+        aria-describedby={description ? descriptionId : undefined}
+        tabIndex={-1}
       >
         <div className="modal-header">
           <div>
             <h2 id={titleId}>{title}</h2>
-            {description ? <p>{description}</p> : null}
+            {description ? <p id={descriptionId}>{description}</p> : null}
           </div>
           <IconButton label="Close dialog" icon="x" onClick={onClose} />
         </div>

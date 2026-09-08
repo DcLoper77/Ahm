@@ -38,7 +38,11 @@ export function ConfirmActionModal({
       setError("Add a reason with at least 3 characters.");
       return;
     }
-    if (expectedVersion !== undefined && (!version || Number(version) < 1)) {
+    const parsedVersion = Number(version);
+    if (
+      expectedVersion !== undefined &&
+      (!version || !Number.isInteger(parsedVersion) || parsedVersion < 1)
+    ) {
       setError("Confirm the current record version before continuing.");
       return;
     }
@@ -46,7 +50,7 @@ export function ConfirmActionModal({
     try {
       await onConfirm({
         ...(reasonRequired || reason ? { reason: reason.trim() } : {}),
-        ...(expectedVersion !== undefined ? { expected_version: Number(version) } : {}),
+        ...(expectedVersion !== undefined ? { expected_version: parsedVersion } : {}),
       });
     } catch (actionError) {
       setError(

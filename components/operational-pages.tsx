@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { hasPermission } from "@/lib/admin/rbac";
-import { formatDate, humanize } from "@/lib/admin/format";
+import { formatDate, humanize, isSensitiveKey, safeScalar } from "@/lib/admin/format";
 import { useAdminQuery } from "@/lib/admin/hooks";
 import { useAdminSession } from "@/components/auth/session-context";
 import { ConfirmActionModal } from "@/components/confirm-action";
@@ -245,6 +245,7 @@ export function AuditPage() {
 }
 
 type OperationsTab = "health" | "workers" | "jobs" | "outbox" | "quarantine";
+const reconcilerSystems = ["hosting", "databases", "vps", "billing"] as const;
 
 function recordsFor(data: AdminRecord | undefined, keys: string[]): AdminRecord[] {
   if (!data) return [];
@@ -393,6 +394,33 @@ export function SystemPage() {
           </button>
         ))}
       </div>
+      {canWrite ? (
+        <Card className="operation-control-card">
+          <div className="card-heading">
+            <div>
+              <h2>Queue a reconciler</h2>
+              <p>
+                Reconciliation creates a durable admin intent. It never calls a provider from the
+                browser and does not mean that external state has already changed.
+              </p>
+            </div>
+            <Badge tone="warning" icon="refresh">
+              Durable queue
+            </Badge>
+          </div>
+          <div className="action-row">
+            {reconcilerSystems.map((system) => (
+              <Button
+                key={system}
+                variant="secondary"
+                onClick={() => setPending({ action: "reconciler", id: system })}
+              >
+                {humanize(system)}
+              </Button>
+            ))}
+          </div>
+        </Card>
+      ) : null}
       <Card>
         {busy && activeQuery.isLoading ? (
           <QueryLoading label={`Loading ${tab}…`} />
@@ -444,11 +472,7 @@ export function SystemPage() {
 function HealthProjection({ data }: { data: AdminRecord | undefined }) {
   const rows = data
     ? Object.entries(data)
-        .filter(
-          ([key, value]) =>
-            !/(token|secret|password|credential|payload|raw)/i.test(key) &&
-            (typeof value === "string" || typeof value === "number" || typeof value === "boolean"),
-        )
+        .filter(([key, value]) => !isSensitiveKey(key) && safeScalar(value) !== null)
         .slice(0, 20)
     : [];
   return rows.length ? (
@@ -563,7 +587,12 @@ function OperationsTable({
     {
       key: "evidence",
       label: "Evidence",
-      render: (row) => <SafeRecordSummary record={row} exclude={["id", "state", "status"]} />,
+      render: (row) =>
+        tab === "quarantine" ? (
+          <QuarantineGuardrails record={row} />
+        ) : (
+          <SafeRecordSummary record={row} exclude={["id", "state", "status"]} />
+        ),
     },
     {
       key: "time",
@@ -620,5 +649,34 @@ function OperationsTable({
       rowKey={(row, index) => String(row.id ?? index)}
       columns={columns}
     />
+  );
+}
+
+function QuarantineGuardrails({ record }: { record: AdminRecord }) {
+  const approvalCount = Array.isArray(record.approvals)
+    ? record.approvals.length
+    : safeScalar(record.approval_count ?? record.approvals_count);
+  const requiredApprovals = safeScalar(record.required_approvals);
+  const executorEligible = safeScalar(record.executor_eligible);
+  const escalation = safeScalar(record.escalation_state ?? record.escalation);
+  const clock = record.expires_at ?? record.approval_expires_at ?? record.clock;
+  return (
+    <div className="quarantine-evidence">
+      <span>
+        Approvals <strong>{approvalCount === null ? "Not reported" : String(approvalCount)}</strong>
+        {requiredApprovals !== null ? ` / ${String(requiredApprovals)}` : ""}
+      </span>
+      <span>
+        Executor{" "}
+        <strong>{executorEligible === null ? "Not reported" : String(executorEligible)}</strong>
+      </span>
+      <span>
+        Clock <strong>{typeof clock === "string" ? formatDate(clock) : "Not reported"}</strong>
+      </span>
+      <span>
+        Escalation <strong>{escalation === null ? "Not reported" : String(escalation)}</strong>
+      </span>
+      <small>Two-person approval remains server-enforced.</small>
+    </div>
   );
 }

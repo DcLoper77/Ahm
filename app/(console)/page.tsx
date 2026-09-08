@@ -11,6 +11,7 @@ import {
   Button,
   Card,
   EmptyState,
+  InlineAlert,
   PageHeader,
   Skeleton,
   StatCard,
@@ -98,10 +99,12 @@ function ActivityCard({
   audit,
   loading,
   error,
+  onRetry,
 }: {
   audit: unknown;
   loading: boolean;
   error: unknown;
+  onRetry: () => void;
 }) {
   const rows =
     audit && typeof audit === "object" && Array.isArray((audit as { audit?: unknown }).audit)
@@ -126,9 +129,7 @@ function ActivityCard({
           <Skeleton className="activity-skeleton" />
         </div>
       ) : error ? (
-        <div className="detail-section">
-          <p className="page-description">Audit activity is temporarily unavailable.</p>
-        </div>
+        <QueryError error={error} onRetry={onRetry} />
       ) : rows.length ? (
         <div className="activity-list detail-section">
           {rows.map((row, index) => {
@@ -221,8 +222,11 @@ export default function OverviewPage() {
           </Button>
         }
       />
-      {usage.error && !canAnalytics ? (
-        <Badge tone="neutral">Analytics is not included in your role.</Badge>
+      {!canAnalytics ? <Badge tone="neutral">Analytics is not included in your role.</Badge> : null}
+      {usage.error && canAnalytics ? (
+        <InlineAlert tone="danger" title="Usage projection unavailable">
+          The bounded usage projection could not be loaded. Other views remain available.
+        </InlineAlert>
       ) : null}
       <div className="stat-grid">
         <StatCard
@@ -294,6 +298,7 @@ export default function OverviewPage() {
             audit={activity.data?.data}
             loading={activity.isLoading}
             error={activity.error}
+            onRetry={() => void activity.refetch()}
           />
         </div>
         <div className="stack">

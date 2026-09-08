@@ -6,12 +6,13 @@ function envelope(data: unknown) {
   return { success: true, data, request_id: "req_e2e" };
 }
 
-function errorEnvelope(code: string, retryable = false) {
+function errorEnvelope(code: string, retryable = false, details?: unknown) {
   return {
     success: false,
     error: {
       code,
       message: "test response",
+      ...(details === undefined ? {} : { details }),
       retryable,
       documentation_url: "https://docs.havenerr.com/errors",
     },
@@ -19,10 +20,11 @@ function errorEnvelope(code: string, retryable = false) {
   };
 }
 
-async function mockAdminApi(page: Page, role: Role = "ROOT") {
+async function mockAdminApi(page: Page, role: Role = "ROOT", options: { stepUp?: boolean } = {}) {
   const state = {
     authenticated: false,
     csrfFailureUsed: false,
+    stepUpFailureUsed: false,
     expireUsers: false,
     mutationHeaders: [] as Record<string, string>[],
   };
@@ -99,6 +101,13 @@ async function mockAdminApi(page: Page, role: Role = "ROOT") {
     if (path.endsWith("/features") && method === "GET")
       return fulfill(200, envelope({ features: [{ key: "hosting", enabled: true, version: 1 }] }));
     if (path.includes("/features/hosting") && method === "PATCH") {
+      if (options.stepUp && !state.stepUpFailureUsed) {
+        state.stepUpFailureUsed = true;
+        return fulfill(
+          401,
+          errorEnvelope("STEP_UP_REQUIRED", false, { action: "admin:feature_flag" }),
+        );
+      }
       if (!state.csrfFailureUsed) {
         state.csrfFailureUsed = true;
         return fulfill(403, errorEnvelope("ADMIN_CSRF_TOKEN_INVALID"));
@@ -163,6 +172,23 @@ test("CSRF recovery retries a mutation with the same idempotency key", async ({ 
   expect(state.mutationHeaders[0]?.["x-csrf-token"]).toBe("browser-csrf");
 });
 
+test("step-up continuation repeats the intended mutation with the same key", async ({ page }) => {
+  const state = await mockAdminApi(page, "ROOT", { stepUp: true });
+  await signIn(page);
+  await page.goto("/features");
+  await page.getByRole("button", { name: "Disable" }).click();
+  await page.getByLabel("Reason").fill("Pause new hosting intent during an incident");
+  await page.getByRole("button", { name: "Disable feature" }).click();
+  await expect(page.getByRole("dialog", { name: "Fresh verification required" })).toBeVisible();
+  await page.getByLabel("Password").fill("a-long-admin-password");
+  await page.getByLabel("MFA code").fill("123456");
+  await page.getByRole("button", { name: "Verify and continue" }).click();
+  await expect(page.getByRole("heading", { name: "Feature flags" })).toBeVisible();
+  await expect.poll(() => state.mutationHeaders.length).toBeGreaterThanOrEqual(2);
+  const patchHeaders = state.mutationHeaders.filter((headers) => headers["idempotency-key"]);
+  expect(patchHeaders.at(-1)?.["idempotency-key"]).toBe(patchHeaders.at(-2)?.["idempotency-key"]);
+});
+
 test("session expiry returns to login with a safe internal path", async ({ page }) => {
   const state = await mockAdminApi(page);
   await signIn(page);
@@ -182,4 +208,27 @@ test("mobile navigation keeps security controls available", async ({ page }) => 
   await page.getByRole("button", { name: "Open navigation" }).click();
   await expect(page.getByRole("complementary", { name: "Primary navigation" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Security settings" })).toBeVisible();
+});
+
+test("audit and operations navigation resolve to implemented protected routes", async ({
+  page,
+}) => {
+  await mockAdminApi(page);
+  await signIn(page);
+  await page.goto("/audit");
+  await expect(page.getByRole("heading", { name: "Audit log" })).toBeVisible();
+  await page.goto("/system");
+  await expect(page.getByRole("heading", { name: "Operations" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Health" })).toBeVisible();
+});
+
+test("security headers protect the control-panel document", async ({ request }) => {
+  const response = await request.get("/");
+  expect(response.status()).toBe(200);
+  expect(response.headers()["cache-control"]).toMatch(/no-store|no-cache/);
+  expect(response.headers()["x-frame-options"]).toBe("DENY");
+  expect(response.headers()["x-content-type-options"]).toBe("nosniff");
+  expect(response.headers()["content-security-policy"]).toContain(
+    "connect-src 'self' https://api.havenerr.com",
+  );
 });

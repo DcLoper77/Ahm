@@ -24,7 +24,7 @@ import {
   TableColumn,
   TextInput,
 } from "@/components/ui";
-import type { AdminRecord } from "@/lib/admin/types";
+import type { AdminListQuery, AdminRecord } from "@/lib/admin/types";
 
 export type InfraKind = "hosting" | "domains" | "databases" | "vps";
 
@@ -86,7 +86,7 @@ const configs: Record<
 async function listFor(
   api: ReturnType<typeof useAdminSession>["api"],
   kind: InfraKind,
-  query: AdminRecord,
+  query: AdminListQuery,
 ): Promise<ApiResult<AdminRecord>> {
   const result =
     kind === "hosting"
@@ -97,6 +97,25 @@ async function listFor(
           ? await api.databases.list(query)
           : await api.vps.list(query);
   return { data: result.data as AdminRecord, request_id: result.request_id };
+}
+
+function defaultFilters(kind: InfraKind): Record<string, string> {
+  const common = { org_id: "", sort_by: "created_at", sort_order: "desc" };
+  if (kind === "hosting") {
+    return { ...common, type: "", desired_state: "", sync_state: "" };
+  }
+  if (kind === "domains") {
+    return {
+      ...common,
+      service_id: "",
+      state: "",
+      ownership_state: "",
+      routing_state: "",
+      certificate_state: "",
+    };
+  }
+  if (kind === "databases") return { ...common, project_id: "", kind: "", state: "" };
+  return { ...common, state: "", sku: "", bundled: "" };
 }
 
 function detailFor(api: ReturnType<typeof useAdminSession>["api"], kind: InfraKind, id: string) {
@@ -115,18 +134,27 @@ function rowsFrom(kind: InfraKind, data: AdminRecord | undefined): AdminRecord[]
     : [];
 }
 
+function actionIsAvailable(kind: InfraKind, action: string, record: AdminRecord): boolean {
+  if (action === "reconcile" || action === "reverify") return true;
+  const state = String(record.desired_state ?? record.state ?? record.status ?? "").toUpperCase();
+  if (["DELETED", "REMOVED", "REMOVING"].includes(state)) return false;
+  if ((action === "restore" || action === "resume") && state !== "SUSPENDED") return false;
+  if (action === "start" && state === "RUNNING") return false;
+  if ((action === "stop" || action === "restart") && ["STOPPED", "SUSPENDED"].includes(state)) {
+    return false;
+  }
+  if (action === "suspend" && state === "SUSPENDED") return false;
+  return true;
+}
+
 export function InfraListPage({ kind }: { kind: InfraKind }) {
   const config = configs[kind];
   const { admin } = useAdminSession();
   const queryClient = useQueryClient();
   const canRead = hasPermission(admin?.roles ?? [], config.read);
-  const [filters, setFilters] = useState({
-    org_id: "",
-    state: "",
-    sort_by: "created_at",
-    sort_order: "desc",
-  });
-  const [draft, setDraft] = useState(filters);
+  const initialFilters = defaultFilters(kind);
+  const [filters, setFilters] = useState(initialFilters);
+  const [draft, setDraft] = useState(initialFilters);
   const [cursorStack, setCursorStack] = useState<(string | undefined)[]>([undefined]);
   const cursor = cursorStack[cursorStack.length - 1];
   const query = useAdminQuery(
@@ -273,22 +301,161 @@ export function InfraListPage({ kind }: { kind: InfraKind }) {
               placeholder="Optional org_…"
             />
           </Field>
-          <Field label="State">
-            <SelectInput
-              value={draft.state}
-              onChange={(event) =>
-                setDraft((current) => ({ ...current, state: event.target.value }))
-              }
-            >
-              <option value="">All states</option>
-              <option value="RUNNING">Running</option>
-              <option value="ACTIVE">Active</option>
-              <option value="PENDING">Pending</option>
-              <option value="FAILED">Failed</option>
-              <option value="SUSPENDED">Suspended</option>
-              <option value="STOPPED">Stopped</option>
-            </SelectInput>
-          </Field>
+          {kind === "hosting" ? (
+            <>
+              <Field label="Project type">
+                <SelectInput
+                  value={draft.type}
+                  onChange={(event) =>
+                    setDraft((current) => ({ ...current, type: event.target.value }))
+                  }
+                >
+                  <option value="">All types</option>
+                  <option value="web">Web</option>
+                  <option value="backend">Backend</option>
+                </SelectInput>
+              </Field>
+              <Field label="Desired state">
+                <SelectInput
+                  value={draft.desired_state}
+                  onChange={(event) =>
+                    setDraft((current) => ({ ...current, desired_state: event.target.value }))
+                  }
+                >
+                  <option value="">All desired states</option>
+                  <option value="PROVISIONING">Provisioning</option>
+                  <option value="RUNNING">Running</option>
+                  <option value="STOPPED">Stopped</option>
+                  <option value="SUSPENDED">Suspended</option>
+                  <option value="PROVISION_FAILED">Provision failed</option>
+                </SelectInput>
+              </Field>
+              <Field label="Sync state">
+                <SelectInput
+                  value={draft.sync_state}
+                  onChange={(event) =>
+                    setDraft((current) => ({ ...current, sync_state: event.target.value }))
+                  }
+                >
+                  <option value="">All sync states</option>
+                  <option value="PENDING">Pending</option>
+                  <option value="IN_SYNC">In sync</option>
+                  <option value="OUT_OF_SYNC">Out of sync</option>
+                  <option value="FAILED">Failed</option>
+                </SelectInput>
+              </Field>
+            </>
+          ) : kind === "domains" ? (
+            <>
+              <Field label="Service ID">
+                <TextInput
+                  value={draft.service_id}
+                  onChange={(event) =>
+                    setDraft((current) => ({ ...current, service_id: event.target.value }))
+                  }
+                  placeholder="Optional svc_…"
+                />
+              </Field>
+              <Field label="Domain state">
+                <SelectInput
+                  value={draft.state}
+                  onChange={(event) =>
+                    setDraft((current) => ({ ...current, state: event.target.value }))
+                  }
+                >
+                  <option value="">All states</option>
+                  <option value="PENDING_VERIFICATION">Pending verification</option>
+                  <option value="VERIFYING">Verifying</option>
+                  <option value="VERIFIED">Verified</option>
+                  <option value="LIVE">Live</option>
+                  <option value="FAILED">Failed</option>
+                  <option value="REMOVED">Removed</option>
+                </SelectInput>
+              </Field>
+              <Field label="Certificate state">
+                <SelectInput
+                  value={draft.certificate_state}
+                  onChange={(event) =>
+                    setDraft((current) => ({ ...current, certificate_state: event.target.value }))
+                  }
+                >
+                  <option value="">All certificates</option>
+                  <option value="NOT_REQUESTED">Not requested</option>
+                  <option value="PENDING">Pending</option>
+                  <option value="ACTIVE">Active</option>
+                  <option value="FAILED">Failed</option>
+                  <option value="EXPIRED">Expired</option>
+                </SelectInput>
+              </Field>
+            </>
+          ) : kind === "databases" ? (
+            <>
+              <Field label="Project ID">
+                <TextInput
+                  value={draft.project_id}
+                  onChange={(event) =>
+                    setDraft((current) => ({ ...current, project_id: event.target.value }))
+                  }
+                  placeholder="Optional project ID"
+                />
+              </Field>
+              <Field label="Database kind">
+                <SelectInput
+                  value={draft.kind}
+                  onChange={(event) =>
+                    setDraft((current) => ({ ...current, kind: event.target.value }))
+                  }
+                >
+                  <option value="">All kinds</option>
+                  <option value="sql">SQL</option>
+                  <option value="mongo">Mongo</option>
+                  <option value="cache">Cache</option>
+                </SelectInput>
+              </Field>
+              <Field label="State">
+                <TextInput
+                  value={draft.state}
+                  onChange={(event) =>
+                    setDraft((current) => ({ ...current, state: event.target.value }))
+                  }
+                  placeholder="e.g. ACTIVE"
+                />
+              </Field>
+            </>
+          ) : (
+            <>
+              <Field label="State">
+                <TextInput
+                  value={draft.state}
+                  onChange={(event) =>
+                    setDraft((current) => ({ ...current, state: event.target.value }))
+                  }
+                  placeholder="e.g. RUNNING"
+                />
+              </Field>
+              <Field label="SKU">
+                <TextInput
+                  value={draft.sku}
+                  onChange={(event) =>
+                    setDraft((current) => ({ ...current, sku: event.target.value }))
+                  }
+                  placeholder="Optional SKU"
+                />
+              </Field>
+              <Field label="Bundled">
+                <SelectInput
+                  value={draft.bundled}
+                  onChange={(event) =>
+                    setDraft((current) => ({ ...current, bundled: event.target.value }))
+                  }
+                >
+                  <option value="">All VPS records</option>
+                  <option value="true">Bundled</option>
+                  <option value="false">Dedicated</option>
+                </SelectInput>
+              </Field>
+            </>
+          )}
           <Field label="Sort">
             <SelectInput
               value={draft.sort_by}
@@ -309,8 +476,10 @@ export function InfraListPage({ kind }: { kind: InfraKind }) {
               type="button"
               variant="quiet"
               onClick={() => {
-                setDraft({ org_id: "", state: "", sort_by: "created_at", sort_order: "desc" });
-                setFilters({ org_id: "", state: "", sort_by: "created_at", sort_order: "desc" });
+                const empty = defaultFilters(kind);
+                setDraft(empty);
+                setFilters(empty);
+                setCursorStack([undefined]);
               }}
             >
               Clear
@@ -360,6 +529,7 @@ export function InfraDetailPage({ kind, id }: { kind: InfraKind; id: string }) {
   const queryClient = useQueryClient();
   const canRead = hasPermission(admin?.roles ?? [], config.read);
   const canWrite = hasPermission(admin?.roles ?? [], config.write);
+  const canSystemWrite = hasPermission(admin?.roles ?? [], "system.write");
   const query = useAdminQuery([kind, id], (api) => detailFor(api, kind, id), { enabled: canRead });
   const [pending, setPending] = useState<{ action: string; record: AdminRecord } | null>(null);
   const [requestId, setRequestId] = useState<string | null>(null);
@@ -377,10 +547,18 @@ export function InfraDetailPage({ kind, id }: { kind: InfraKind; id: string }) {
   const actionBody = (action: string, input: { reason?: string; expected_version?: number }) => {
     const body: AdminRecord = {};
     if (input.reason) body.reason = input.reason;
-    if (input.expected_version !== undefined) body.expected_version = input.expected_version;
-    if (kind === "hosting" && action !== "reconcile")
-      body.expected_desired_version =
-        typeof record?.desired_version === "number" ? record.desired_version : 1;
+    if (action !== "reconcile" && action !== "reverify") {
+      if (input.expected_version === undefined) {
+        throw new Error("The current record version is unavailable. Refresh before retrying.");
+      }
+      body.expected_version = input.expected_version;
+    }
+    if (kind === "hosting" && action !== "reconcile") {
+      if (typeof record?.desired_version !== "number" || record.desired_version < 1) {
+        throw new Error("The current desired version is unavailable. Refresh before retrying.");
+      }
+      body.expected_desired_version = record.desired_version;
+    }
     return body;
   };
   const submit = async (input: { reason?: string; expected_version?: number }) => {
@@ -446,7 +624,17 @@ export function InfraDetailPage({ kind, id }: { kind: InfraKind; id: string }) {
       : typeof record.fqdn === "string"
         ? record.fqdn
         : id;
-  const expectedVersion = typeof record.version === "number" ? record.version : undefined;
+  const expectedVersion =
+    typeof record.version === "number" && record.version >= 1 ? record.version : undefined;
+  const requiresVersion = (action: string) => action !== "reconcile" && action !== "reverify";
+  const availableActions = actionList.filter((action) => {
+    if (!actionIsAvailable(kind, action, record)) return false;
+    if (action === "reconcile") return canSystemWrite;
+    return canWrite && (!requiresVersion(action) || expectedVersion !== undefined);
+  });
+  const hasVersionedWrite =
+    canWrite &&
+    actionList.some((action) => requiresVersion(action) && actionIsAvailable(kind, action, record));
   return (
     <>
       <PageHeader
@@ -473,38 +661,39 @@ export function InfraDetailPage({ kind, id }: { kind: InfraKind; id: string }) {
           </span>
         </div>
         <div className="action-row">
-          {canWrite ? (
-            actionList
-              .filter(
-                (action) =>
-                  action !== "reconcile" || hasPermission(admin?.roles ?? [], "system.write"),
-              )
-              .map((action) => (
-                <Button
-                  key={action}
-                  variant={
-                    action === "remove" || action === "suspend" || action === "stop"
-                      ? "danger-quiet"
-                      : action === "reconcile" || action === "reverify"
-                        ? "secondary"
-                        : "primary"
-                  }
-                  icon={
-                    action === "reconcile" || action === "reverify"
-                      ? "refresh"
-                      : action === "start" || action === "restore" || action === "resume"
-                        ? "play"
-                        : action === "remove"
-                          ? "trash"
-                          : "pause"
-                  }
-                  onClick={() => setPending({ action, record })}
-                >
-                  {humanize(action)}
-                </Button>
-              ))
+          {availableActions.length ? (
+            availableActions.map((action) => (
+              <Button
+                key={action}
+                variant={
+                  action === "remove" || action === "suspend" || action === "stop"
+                    ? "danger-quiet"
+                    : action === "reconcile" || action === "reverify"
+                      ? "secondary"
+                      : "primary"
+                }
+                icon={
+                  action === "reconcile" || action === "reverify"
+                    ? "refresh"
+                    : action === "start" || action === "restore" || action === "resume"
+                      ? "play"
+                      : action === "remove"
+                        ? "trash"
+                        : "pause"
+                }
+                onClick={() => setPending({ action, record })}
+              >
+                {humanize(action)}
+              </Button>
+            ))
           ) : (
-            <Badge tone="neutral">Read only</Badge>
+            <Badge tone="warning">
+              {canWrite || canSystemWrite
+                ? hasVersionedWrite && expectedVersion === undefined
+                  ? "Waiting for current version"
+                  : "No valid action for current state"
+                : "Read only"}
+            </Badge>
           )}
         </div>
       </div>
@@ -659,7 +848,9 @@ export function InfraDetailPage({ kind, id }: { kind: InfraKind; id: string }) {
           reasonRequired={
             pending.action !== "start" &&
             pending.action !== "restore" &&
-            pending.action !== "resume"
+            pending.action !== "resume" &&
+            pending.action !== "reconcile" &&
+            pending.action !== "reverify"
           }
           dangerous={["stop", "suspend", "remove", "restart"].includes(pending.action)}
           expectedVersion={

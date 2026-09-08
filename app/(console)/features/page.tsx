@@ -81,17 +81,22 @@ export default function FeaturesPage() {
         key: "action",
         label: "",
         align: "right",
-        render: (row) =>
-          canWrite && typeof row.key === "string" ? (
+        render: (row) => {
+          const hasVersion = typeof row.version === "number" && row.version >= 1;
+          const hasState = typeof row.enabled === "boolean";
+          return canWrite && typeof row.key === "string" && hasVersion && hasState ? (
             <Button
               variant={row.enabled === true ? "danger-quiet" : "secondary"}
               onClick={() => setPending(row)}
             >
               {row.enabled === true ? "Disable" : "Enable"}
             </Button>
+          ) : canWrite && typeof row.key === "string" ? (
+            <Badge tone="warning">Waiting for version/state</Badge>
           ) : (
             <Badge tone="neutral">Read only</Badge>
-          ),
+          );
+        },
       },
     ],
     [canWrite],
@@ -185,7 +190,9 @@ function FeatureDialog({
 }) {
   const key = String(feature.key);
   const enabled = feature.enabled === true;
-  const version = typeof feature.version === "number" ? feature.version : 1;
+  const version =
+    typeof feature.version === "number" && feature.version >= 1 ? feature.version : undefined;
+  if (version === undefined || typeof feature.enabled !== "boolean") return null;
   return (
     <ConfirmActionModal
       title={`${enabled ? "Disable" : "Enable"} ${key}`}

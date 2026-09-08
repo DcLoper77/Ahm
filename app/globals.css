@@ -734,6 +734,11 @@ a.stat-card:hover {
 .data-table tbody tr.is-clickable {
   cursor: pointer;
 }
+.table-wrap:focus-visible {
+  outline: 3px solid rgba(20, 120, 212, 0.32);
+  outline-offset: 4px;
+  border-radius: 8px;
+}
 .data-table .align-right {
   text-align: right;
 }
@@ -1287,6 +1292,24 @@ a.stat-card:hover {
   justify-content: flex-end;
   gap: 7px;
   padding: 0 23px 21px;
+}
+.operation-control-card {
+  margin-bottom: 18px;
+}
+.quarantine-evidence {
+  display: grid;
+  gap: 3px;
+  min-width: 170px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.quarantine-evidence strong {
+  color: var(--ink-soft);
+  font-weight: 650;
+}
+.quarantine-evidence small {
+  margin-top: 3px;
+  color: var(--muted-light);
 }
 .danger-callout {
   display: flex;

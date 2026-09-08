@@ -3,6 +3,7 @@ import type { AdminAcceptInvitationBody, AdminInvitationBody, AdminLoginBody } f
 import type {
   AdminInvitationResult,
   AdminInvitationSummary,
+  AdminListQuery,
   AdminLoginResult,
   AdminMe,
   AdminRecord,
@@ -72,7 +73,7 @@ export interface AdminResourceApi {
   };
   users: {
     list(
-      query?: AdminRecord,
+      query?: AdminListQuery,
     ): Promise<ApiResult<{ users: CustomerUserSummary[]; next_cursor: string | null }>>;
     detail(userId: string): Promise<ApiResult<CustomerUserDetail>>;
     action(
@@ -84,7 +85,7 @@ export interface AdminResourceApi {
   };
   organizations: {
     list(
-      query?: AdminRecord,
+      query?: AdminListQuery,
     ): Promise<ApiResult<{ orgs: OrganizationSummary[]; next_cursor: string | null }>>;
     detail(orgId: string): Promise<ApiResult<OrganizationDetail>>;
     action(
@@ -135,73 +136,73 @@ export interface AdminResourceApi {
   };
   hosting: {
     projects(
-      query?: AdminRecord,
+      query?: AdminListQuery,
     ): Promise<ApiResult<{ hosting_projects: AdminRecord[]; next_cursor: string | null }>>;
     project(projectId: string): Promise<ApiResult<AdminRecord>>;
     projectAction(
       projectId: string,
-      action: string,
+      action: "start" | "stop" | "restart" | "suspend" | "restore" | "reconcile",
       body: AdminRecord,
       idempotencyKey?: string,
     ): Promise<ApiResult<AdminRecord>>;
     deployments(
-      query?: AdminRecord,
+      query?: AdminListQuery,
     ): Promise<ApiResult<{ deployments: AdminRecord[]; next_cursor: string | null }>>;
     deployment(deploymentId: string): Promise<ApiResult<AdminRecord>>;
     deploymentAction(
       deploymentId: string,
-      action: string,
+      action: "rollback" | "reconcile",
       body?: AdminRecord,
       idempotencyKey?: string,
     ): Promise<ApiResult<AdminRecord>>;
   };
   domains: {
     list(
-      query?: AdminRecord,
+      query?: AdminListQuery,
     ): Promise<ApiResult<{ domains: AdminRecord[]; next_cursor: string | null }>>;
     detail(domainId: string): Promise<ApiResult<AdminRecord>>;
     action(
       domainId: string,
-      action: string,
+      action: "reverify" | "suspend" | "restore" | "remove",
       body: AdminRecord,
       idempotencyKey?: string,
     ): Promise<ApiResult<AdminRecord>>;
   };
   databases: {
     list(
-      query?: AdminRecord,
+      query?: AdminListQuery,
     ): Promise<ApiResult<{ databases: AdminRecord[]; next_cursor: string | null }>>;
     detail(databaseId: string): Promise<ApiResult<AdminRecord>>;
     action(
       databaseId: string,
-      action: string,
+      action: "suspend" | "resume" | "reconcile",
       body: AdminRecord,
       idempotencyKey?: string,
     ): Promise<ApiResult<AdminRecord>>;
   };
   vps: {
     list(
-      query?: AdminRecord,
+      query?: AdminListQuery,
     ): Promise<ApiResult<{ vps: AdminRecord[]; next_cursor: string | null }>>;
     detail(vpsId: string): Promise<ApiResult<AdminRecord>>;
     action(
       vpsId: string,
-      action: string,
+      action: "start" | "stop" | "restart" | "suspend" | "restore" | "reconcile",
       body: AdminRecord,
       idempotencyKey?: string,
     ): Promise<ApiResult<AdminRecord>>;
   };
   billing: {
     subscriptions(
-      query?: AdminRecord,
+      query?: AdminListQuery,
     ): Promise<ApiResult<{ subscriptions: AdminRecord[]; next_cursor: string | null }>>;
     subscription(id: string): Promise<ApiResult<AdminRecord>>;
     invoices(
-      query?: AdminRecord,
+      query?: AdminListQuery,
     ): Promise<ApiResult<{ invoices: AdminRecord[]; next_cursor: string | null }>>;
     invoice(id: string): Promise<ApiResult<AdminRecord>>;
     payments(
-      query?: AdminRecord,
+      query?: AdminListQuery,
     ): Promise<ApiResult<{ payments: AdminRecord[]; next_cursor: string | null }>>;
     payment(id: string): Promise<ApiResult<AdminRecord>>;
     refund(
@@ -210,7 +211,7 @@ export interface AdminResourceApi {
       idempotencyKey?: string,
     ): Promise<ApiResult<AdminRecord>>;
     refunds(
-      query?: AdminRecord,
+      query?: AdminListQuery,
     ): Promise<ApiResult<{ refunds: AdminRecord[]; next_cursor: string | null }>>;
     refundDetail(id: string): Promise<ApiResult<AdminRecord>>;
     cancelSubscription(
@@ -226,15 +227,15 @@ export interface AdminResourceApi {
   };
   audit: {
     list(
-      query?: AdminRecord,
+      query?: AdminListQuery,
     ): Promise<ApiResult<{ audit: AdminRecord[]; next_cursor: string | null }>>;
   };
   system: {
     health(): Promise<ApiResult<AdminRecord>>;
     workers(): Promise<ApiResult<{ workers: AdminRecord[] }>>;
-    jobs(query?: AdminRecord): Promise<ApiResult<AdminRecord>>;
-    outbox(query?: AdminRecord): Promise<ApiResult<AdminRecord>>;
-    quarantine(query?: AdminRecord): Promise<ApiResult<AdminRecord>>;
+    jobs(query?: AdminListQuery): Promise<ApiResult<AdminRecord>>;
+    outbox(query?: AdminListQuery): Promise<ApiResult<AdminRecord>>;
+    quarantine(query?: AdminListQuery): Promise<ApiResult<AdminRecord>>;
     requeueJob(jobId: string, idempotencyKey?: string): Promise<ApiResult<AdminRecord>>;
     requeueOutbox(outboxId: string, idempotencyKey?: string): Promise<ApiResult<AdminRecord>>;
     runReconciler(
@@ -257,6 +258,19 @@ function actionPath(prefix: string, id: string, action: string): string {
 
 function keyOptions(idempotencyKey?: string) {
   return idempotencyKey ? { idempotencyKey } : undefined;
+}
+
+function pickQuery(
+  query: AdminListQuery | undefined,
+  allowed: readonly string[],
+): AdminListQuery | undefined {
+  if (!query) return undefined;
+  const result: AdminListQuery = {};
+  for (const key of allowed) {
+    const value = query[key];
+    if (value !== undefined && value !== null && value !== "") result[key] = value;
+  }
+  return result;
 }
 
 export function createAdminApi(client: AdminApiClient): AdminAuthApi & AdminResourceApi {
@@ -352,7 +366,7 @@ export function createAdminApi(client: AdminApiClient): AdminAuthApi & AdminReso
       list: (query) =>
         client.get<{ users: CustomerUserSummary[]; next_cursor: string | null }>(
           "/users",
-          query as never,
+          pickQuery(query, ["cursor", "limit", "status", "email", "sort_by", "sort_order"]),
         ),
       detail: (id) => client.get<CustomerUserDetail>(`/users/${encodeSegment(id)}`),
       action: (id, action, body, idempotencyKey) =>
@@ -366,7 +380,16 @@ export function createAdminApi(client: AdminApiClient): AdminAuthApi & AdminReso
       list: (query) =>
         client.get<{ orgs: OrganizationSummary[]; next_cursor: string | null }>(
           "/orgs",
-          query as never,
+          pickQuery(query, [
+            "cursor",
+            "limit",
+            "state",
+            "plan_code",
+            "kind",
+            "owner_user_id",
+            "sort_by",
+            "sort_order",
+          ]),
         ),
       detail: (id) => client.get<OrganizationDetail>(`/orgs/${encodeSegment(id)}`),
       action: (id, action, body, idempotencyKey) =>
@@ -423,7 +446,16 @@ export function createAdminApi(client: AdminApiClient): AdminAuthApi & AdminReso
       projects: (query) =>
         client.get<{ hosting_projects: AdminRecord[]; next_cursor: string | null }>(
           "/hosting/projects",
-          query as never,
+          pickQuery(query, [
+            "cursor",
+            "limit",
+            "sort_order",
+            "org_id",
+            "type",
+            "desired_state",
+            "sync_state",
+            "sort_by",
+          ]),
         ),
       project: (id) => client.get<AdminRecord>(`/hosting/projects/${encodeSegment(id)}`),
       projectAction: (id, action, body, idempotencyKey) =>
@@ -435,7 +467,16 @@ export function createAdminApi(client: AdminApiClient): AdminAuthApi & AdminReso
       deployments: (query) =>
         client.get<{ deployments: AdminRecord[]; next_cursor: string | null }>(
           "/hosting/deployments",
-          query as never,
+          pickQuery(query, [
+            "cursor",
+            "limit",
+            "sort_order",
+            "org_id",
+            "service_id",
+            "state",
+            "failure_stage",
+            "sort_by",
+          ]),
         ),
       deployment: (id) => client.get<AdminRecord>(`/hosting/deployments/${encodeSegment(id)}`),
       deploymentAction: (id, action, body, idempotencyKey) =>
@@ -449,7 +490,18 @@ export function createAdminApi(client: AdminApiClient): AdminAuthApi & AdminReso
       list: (query) =>
         client.get<{ domains: AdminRecord[]; next_cursor: string | null }>(
           "/domains",
-          query as never,
+          pickQuery(query, [
+            "cursor",
+            "limit",
+            "sort_order",
+            "org_id",
+            "service_id",
+            "state",
+            "ownership_state",
+            "routing_state",
+            "certificate_state",
+            "sort_by",
+          ]),
         ),
       detail: (id) => client.get<AdminRecord>(`/domains/${encodeSegment(id)}`),
       action: (id, action, body, idempotencyKey) =>
@@ -463,7 +515,16 @@ export function createAdminApi(client: AdminApiClient): AdminAuthApi & AdminReso
       list: (query) =>
         client.get<{ databases: AdminRecord[]; next_cursor: string | null }>(
           "/databases",
-          query as never,
+          pickQuery(query, [
+            "cursor",
+            "limit",
+            "sort_order",
+            "org_id",
+            "project_id",
+            "kind",
+            "state",
+            "sort_by",
+          ]),
         ),
       detail: (id) => client.get<AdminRecord>(`/databases/${encodeSegment(id)}`),
       action: (id, action, body, idempotencyKey) =>
@@ -477,7 +538,16 @@ export function createAdminApi(client: AdminApiClient): AdminAuthApi & AdminReso
       list: (query) =>
         client.get<{ vps: AdminRecord[]; next_cursor: string | null }>(
           "/infrastructure/vps",
-          query as never,
+          pickQuery(query, [
+            "cursor",
+            "limit",
+            "sort_order",
+            "org_id",
+            "state",
+            "sku",
+            "bundled",
+            "sort_by",
+          ]),
         ),
       detail: (id) => client.get<AdminRecord>(`/infrastructure/vps/${encodeSegment(id)}`),
       action: (id, action, body, idempotencyKey) =>
@@ -491,19 +561,44 @@ export function createAdminApi(client: AdminApiClient): AdminAuthApi & AdminReso
       subscriptions: (query) =>
         client.get<{ subscriptions: AdminRecord[]; next_cursor: string | null }>(
           "/billing/subscriptions",
-          query as never,
+          pickQuery(query, [
+            "cursor",
+            "limit",
+            "sort_order",
+            "org_id",
+            "status",
+            "plan_code",
+            "currency",
+            "sort_by",
+          ]),
         ),
       subscription: (id) => client.get<AdminRecord>(`/billing/subscriptions/${encodeSegment(id)}`),
       invoices: (query) =>
         client.get<{ invoices: AdminRecord[]; next_cursor: string | null }>(
           "/billing/invoices",
-          query as never,
+          pickQuery(query, [
+            "cursor",
+            "limit",
+            "sort_order",
+            "org_id",
+            "status",
+            "currency",
+            "sort_by",
+          ]),
         ),
       invoice: (id) => client.get<AdminRecord>(`/billing/invoices/${encodeSegment(id)}`),
       payments: (query) =>
         client.get<{ payments: AdminRecord[]; next_cursor: string | null }>(
           "/billing/payments",
-          query as never,
+          pickQuery(query, [
+            "cursor",
+            "limit",
+            "sort_order",
+            "org_id",
+            "invoice_id",
+            "status",
+            "sort_by",
+          ]),
         ),
       payment: (id) => client.get<AdminRecord>(`/billing/payments/${encodeSegment(id)}`),
       refund: (id, body, idempotencyKey) =>
@@ -515,7 +610,15 @@ export function createAdminApi(client: AdminApiClient): AdminAuthApi & AdminReso
       refunds: (query) =>
         client.get<{ refunds: AdminRecord[]; next_cursor: string | null }>(
           "/billing/refunds",
-          query as never,
+          pickQuery(query, [
+            "cursor",
+            "limit",
+            "sort_order",
+            "org_id",
+            "payment_id",
+            "status",
+            "sort_by",
+          ]),
         ),
       refundDetail: (id) => client.get<AdminRecord>(`/billing/refunds/${encodeSegment(id)}`),
       cancelSubscription: (id, body, idempotencyKey) =>
@@ -537,14 +640,42 @@ export function createAdminApi(client: AdminApiClient): AdminAuthApi & AdminReso
     },
     audit: {
       list: (query) =>
-        client.get<{ audit: AdminRecord[]; next_cursor: string | null }>("/audit", query as never),
+        client.get<{ audit: AdminRecord[]; next_cursor: string | null }>(
+          "/audit",
+          pickQuery(query, [
+            "cursor",
+            "limit",
+            "sort_by",
+            "sort_order",
+            "actor_id",
+            "action",
+            "target_type",
+            "target_id",
+            "outcome",
+            "org_id",
+            "from",
+            "to",
+          ]),
+        ),
     },
     system: {
       health: () => client.get<AdminRecord>("/system/health"),
       workers: () => client.get<{ workers: AdminRecord[] }>("/system/workers"),
-      jobs: (query) => client.get<AdminRecord>("/system/jobs", query as never),
-      outbox: (query) => client.get<AdminRecord>("/system/outbox", query as never),
-      quarantine: (query) => client.get<AdminRecord>("/system/quarantine", query as never),
+      jobs: (query) =>
+        client.get<AdminRecord>(
+          "/system/jobs",
+          pickQuery(query, ["cursor", "limit", "state", "type"]),
+        ),
+      outbox: (query) =>
+        client.get<AdminRecord>(
+          "/system/outbox",
+          pickQuery(query, ["cursor", "limit", "state", "intent"]),
+        ),
+      quarantine: (query) =>
+        client.get<AdminRecord>(
+          "/system/quarantine",
+          pickQuery(query, ["cursor", "limit", "system", "state", "drift_class", "sort_order"]),
+        ),
       requeueJob: (id, idempotencyKey) =>
         client.post<AdminRecord, Record<string, never>>(
           actionPath("/system/jobs", id, "requeue"),

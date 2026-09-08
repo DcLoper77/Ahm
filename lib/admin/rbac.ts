@@ -68,6 +68,12 @@ export function hasAnyPermission(
   return permissions.some((permission) => hasPermission(roles, permission));
 }
 
+export function canGrantRole(grantorRoles: readonly AdminRole[], targetRole: AdminRole): boolean {
+  return (ROLE_PERMISSIONS[targetRole] ?? []).every((permission) =>
+    hasPermission(grantorRoles, permission),
+  );
+}
+
 export function roleLabel(role: AdminRole): string {
   return role
     .toLowerCase()

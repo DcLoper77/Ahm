@@ -131,9 +131,24 @@ export function AdminSessionProvider({ children }: { children: React.ReactNode }
     async (credentials: AdminLoginBody) => {
       const result = await api.login(credentials);
       setIdleExpiresAt(result.data.idle_expires_at);
-      const me = await api.me();
-      setAdmin(me.data);
       setStatus("authenticated");
+      try {
+        const me = await api.me();
+        setAdmin(me.data);
+      } catch (error) {
+        if (
+          !result.data.mfa_enrollment_required ||
+          !(error instanceof AdminApiError && error.code === "ADMIN_MFA_REQUIRED")
+        ) {
+          setAdmin(null);
+          setStatus("unauthenticated");
+          throw error;
+        }
+        // Restricted invitation sessions may not be allowed through /auth/me until MFA is enrolled.
+        // Keep the authenticated cookie session available to the enrollment route without inventing
+        // an incomplete AdminMe object.
+        setAdmin(null);
+      }
       return { mfa_enrollment_required: result.data.mfa_enrollment_required };
     },
     [api],

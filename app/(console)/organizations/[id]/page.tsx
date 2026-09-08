@@ -30,11 +30,14 @@ export default function OrganizationDetailPage() {
 
   const submit = async (input: { reason?: string; expected_version?: number }) => {
     if (!organization || !action) return;
+    if (input.expected_version === undefined) {
+      throw new Error("The current organization version is unavailable. Refresh before retrying.");
+    }
     const response = await runMutation<Record<string, unknown>>({
       path: `/orgs/${encodeURIComponent(params.id)}:${action}`,
       body: {
         reason: input.reason ?? "",
-        expected_version: input.expected_version ?? Number(organization.version ?? 1),
+        expected_version: input.expected_version,
       },
       step_up_action: `admin:org_${action}`,
     });
@@ -80,6 +83,10 @@ export default function OrganizationDetailPage() {
     );
 
   const name = typeof organization.name === "string" ? organization.name : params.id;
+  const currentVersion =
+    typeof organization.version === "number" && organization.version >= 1
+      ? organization.version
+      : undefined;
   const serviceState = organization.service_state ?? organization.state;
   const billingProjection = organization.billing;
   const billingState =
@@ -103,6 +110,7 @@ export default function OrganizationDetailPage() {
               Back to organizations
             </Button>
             {canMutate &&
+              currentVersion !== undefined &&
               (serviceState === "SUSPENDED" ? (
                 <Button variant="secondary" icon="play" onClick={() => setAction("restore")}>
                   Restore services
@@ -112,6 +120,9 @@ export default function OrganizationDetailPage() {
                   Suspend services
                 </Button>
               ))}
+            {canMutate && currentVersion === undefined ? (
+              <Badge tone="warning">Waiting for current version</Badge>
+            ) : null}
           </>
         }
       />
@@ -235,9 +246,7 @@ export default function OrganizationDetailPage() {
           }
           actionLabel={action === "suspend" ? "Suspend services" : "Restore services"}
           dangerous={action === "suspend"}
-          expectedVersion={
-            typeof organization.version === "number" ? organization.version : undefined
-          }
+          expectedVersion={currentVersion}
           onConfirm={submit}
           onClose={() => setAction(null)}
         />

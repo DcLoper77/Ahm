@@ -148,13 +148,18 @@ export default function MfaEnrollPage() {
                 <Field
                   label="Setup secret"
                   hint="Keep this value private and do not paste it into support channels."
+                  staticContent
                 >
                   <CopyValue
                     value={enrollment?.secret ?? "Loading setup secret…"}
                     label="Copy setup secret"
                   />
                 </Field>
-                <Field label="Authenticator URI" hint="Use this only in an approved authenticator.">
+                <Field
+                  label="Authenticator URI"
+                  hint="Use this only in an approved authenticator."
+                  staticContent
+                >
                   <CopyValue
                     value={enrollment?.otpauth_uri ?? "Loading setup URI…"}
                     label="Copy authenticator URI"

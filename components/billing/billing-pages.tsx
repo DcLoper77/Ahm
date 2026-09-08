@@ -26,7 +26,7 @@ import {
   TextArea,
   TextInput,
 } from "@/components/ui";
-import type { AdminRecord } from "@/lib/admin/types";
+import type { AdminListQuery, AdminRecord } from "@/lib/admin/types";
 
 export type BillingKind = "subscriptions" | "invoices" | "payments" | "refunds";
 
@@ -63,7 +63,7 @@ const configs: Record<
 async function listFor(
   api: ReturnType<typeof useAdminSession>["api"],
   kind: BillingKind,
-  query: AdminRecord,
+  query: AdminListQuery,
 ): Promise<ApiResult<AdminRecord>> {
   const result =
     kind === "subscriptions"
@@ -341,13 +341,20 @@ export function BillingDetailPage({ kind, id }: { kind: BillingKind; id: string 
       : entity && typeof entity.plan_code === "string"
         ? entity.plan_code
         : id;
+  const entityVersion =
+    entity && typeof entity.version === "number" && entity.version >= 1
+      ? entity.version
+      : undefined;
 
   const cancel = async (input: { reason?: string; expected_version?: number }) => {
     if (!entity) return;
+    if (input.expected_version === undefined) {
+      throw new Error("The current subscription version is unavailable. Refresh before retrying.");
+    }
     const response = await runMutation<AdminRecord>({
       path: `/billing/subscriptions/${encodeURIComponent(id)}:cancel`,
       body: {
-        expected_version: input.expected_version ?? Number(entity.version ?? 1),
+        expected_version: input.expected_version,
         reason: input.reason ?? "",
       },
       step_up_action: "admin:subscription_cancel",
@@ -480,7 +487,7 @@ export function BillingDetailPage({ kind, id }: { kind: BillingKind; id: string 
             </div>
             <div className="detail-section">
               <div className="action-row">
-                {kind === "subscriptions" && canWrite ? (
+                {kind === "subscriptions" && canWrite && entityVersion !== undefined ? (
                   <Button
                     variant="danger-quiet"
                     icon="pause"
@@ -488,6 +495,8 @@ export function BillingDetailPage({ kind, id }: { kind: BillingKind; id: string 
                   >
                     Cancel subscription
                   </Button>
+                ) : kind === "subscriptions" && canWrite ? (
+                  <Badge tone="warning">Waiting for current version</Badge>
                 ) : null}
                 {kind === "payments" && canWrite ? (
                   <Button
@@ -549,7 +558,7 @@ export function BillingDetailPage({ kind, id }: { kind: BillingKind; id: string 
           actionLabel="Cancel subscription"
           dangerous
           moneyMoving
-          expectedVersion={typeof entity.version === "number" ? entity.version : 1}
+          expectedVersion={entityVersion}
           onConfirm={cancel}
           onClose={() => setPendingAction(null)}
         />
@@ -575,6 +584,13 @@ function RefundModal({
   const submit = async () => {
     if (reason.trim().length < 3) {
       setError("Add a reason with at least 3 characters.");
+      return;
+    }
+    if (
+      amount &&
+      (!/^\d+$/.test(amount) || !Number.isSafeInteger(Number(amount)) || Number(amount) < 1)
+    ) {
+      setError("Enter a positive whole-number amount in minor units, or leave it blank.");
       return;
     }
     setLoading(true);

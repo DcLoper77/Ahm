@@ -825,7 +825,7 @@ function CatalogueActionDialog({
       description="The backend checks parity, version, role, and fresh MFA before changing catalogue authority."
       actionLabel={pendingAction.action}
       expectedVersion={pendingAction.revision.version}
-      reasonRequired={pendingAction.action !== "validate"}
+      reasonRequired={false}
       dangerous={pendingAction.action === "retire" || pendingAction.action === "publish"}
       onConfirm={submit}
       onClose={onClose}

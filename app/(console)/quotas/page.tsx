@@ -101,21 +101,25 @@ export default function QuotasPage() {
         key: "action",
         label: "",
         align: "right",
-        render: (row) =>
-          typeof row.key_name === "string" ? (
+        render: (row) => {
+          const version = typeof row.version === "number" && row.version >= 1 ? row.version : null;
+          return typeof row.key_name === "string" && version !== null ? (
             <Button
               variant="danger-quiet"
               icon="trash"
               onClick={() =>
                 setClearKey({
                   key: row.key_name as string,
-                  version: typeof row.version === "number" ? row.version : 1,
+                  version,
                 })
               }
             >
               Clear
             </Button>
-          ) : null,
+          ) : typeof row.key_name === "string" ? (
+            <Badge tone="warning">Waiting for version</Badge>
+          ) : null;
+        },
       },
     ],
     [],

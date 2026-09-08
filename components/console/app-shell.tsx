@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { hasAnyPermission, roleSummary } from "@/lib/admin/rbac";
 import { NAV_SECTIONS, type NavItem } from "@/lib/admin/navigation";
 import { useAdminSession } from "../auth/session-context";
@@ -20,6 +20,12 @@ function currentNavItem(pathname: string): NavItem | undefined {
 function CommandPalette({ onClose }: { onClose: () => void }) {
   const router = useRouter();
   const { admin } = useAdminSession();
+  const paletteRef = useRef<HTMLDivElement>(null);
+  const previousFocus = useRef<HTMLElement | null>(
+    typeof document !== "undefined" && document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null,
+  );
   const [search, setSearch] = useState("");
   const items = useMemo(
     () =>
@@ -28,6 +34,38 @@ function CommandPalette({ onClose }: { onClose: () => void }) {
       ).filter((item) => hasAnyPermission(admin?.roles ?? [], item.permissions)),
     [admin?.roles],
   );
+  useEffect(() => {
+    const focusOrigin = previousFocus.current;
+    const palette = paletteRef.current;
+    const focusableSelector =
+      "input:not([disabled]), button:not([disabled]), a[href], [tabindex]:not([tabindex='-1'])";
+    const focusable = () =>
+      Array.from(palette?.querySelectorAll<HTMLElement>(focusableSelector) ?? []);
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const elements = focusable();
+      if (!elements.length) return;
+      const first = elements[0];
+      const last = elements[elements.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      focusOrigin?.focus();
+    };
+  }, [onClose]);
   const filtered = items
     .filter((item) =>
       `${item.label} ${item.description} ${item.section}`
@@ -43,7 +81,14 @@ function CommandPalette({ onClose }: { onClose: () => void }) {
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      <div className="command-palette" role="dialog" aria-modal="true" aria-label="Command palette">
+      <div
+        ref={paletteRef}
+        className="command-palette"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Command palette"
+        tabIndex={-1}
+      >
         <div className="command-search">
           <Icon name="search" size={19} />
           <input

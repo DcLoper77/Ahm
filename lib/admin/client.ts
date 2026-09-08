@@ -246,13 +246,15 @@ export class AdminApiClient {
   private isSuccessEnvelope<T>(value: unknown): value is {
     success: true;
     data: T;
-    request_id?: string;
+    request_id: string;
   } {
     return Boolean(
       value &&
       typeof value === "object" &&
       (value as { success?: unknown }).success === true &&
-      "data" in value,
+      "data" in value &&
+      typeof (value as { request_id?: unknown }).request_id === "string" &&
+      Boolean((value as { request_id?: string }).request_id),
     );
   }
 
