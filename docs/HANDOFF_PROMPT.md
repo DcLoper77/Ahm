@@ -8,10 +8,13 @@ app or replace the existing API client.
 The current repository already contains the Next.js 16 TypeScript App Router shell, strict tooling,
 the credentialed `lib/admin/client.ts` boundary, exact six-role RBAC, session/login/MFA/invitation
 flows, responsive light UI, resource pages for the documented admin route families, focused Vitest
-tests, and Playwright desktop/mobile smoke tests. `npm.cmd run typecheck`, `npm.cmd run lint`,
-`npm.cmd run format:check`, `npm.cmd test`, and `npm.cmd run build` pass; the isolated Playwright
-suite passes 10/10. Those tests use mocks and do not prove live CORS, cookies, DTOs, worker/provider
-state, or Vercel behavior.
+tests, and Playwright desktop/mobile smoke tests. The latest local hardening pass adds exact-envelope
+and documented-route fixtures, redaction/error catalogue coverage, real `/audit` and `/system`
+routes, reconciler/quarantine evidence, version guards, keyboard modal/table behavior, and security
+header checks. `npm.cmd run typecheck`, `npm.cmd run lint`, `npm.cmd run format:check`,
+`npm.cmd test` (20 tests), and `npm.cmd run build` pass; the isolated Playwright suite passes 16/16.
+Those tests use mocks and do not prove live CORS, cookies, DTOs, worker/provider state, or Vercel
+behavior.
 
 Complete the held work in this order:
 
@@ -33,3 +36,8 @@ Complete the held work in this order:
 
 Do not claim external worker, DNS, provider, Redis, production-clone, or production proof until a
 real controlled check demonstrates it.
+
+Pending follow-up request: customer feedback ratings/messages (1–5 stars plus a message) is not
+implemented yet. Because the current scope keeps `D:\API - Havenerr` read-only, first obtain an
+approved backend schema/route/permission/persistence contract and explicit backend scope before
+adding the admin frontend page; never guess the endpoint.

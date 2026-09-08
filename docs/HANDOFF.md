@@ -2,6 +2,65 @@
 
 Entries are newest first. The backend repository is read-only for this project.
 
+## 2026-09-08 - Codex - AF-0 through AF-5 local hardening and contract coverage
+
+Status: local implementation and verification complete; AF-5 remains held because live backend,
+CORS/cookie, and Vercel evidence is unavailable.
+
+Pages/components/API modules: added real protected `/audit` and `/system` App Router pages; hardened
+`lib/admin/client.ts` to require the exact `{ success, data, request_id }` success envelope and keep
+stable mutation keys through network, CSRF, and `IDEMPOTENCY_IN_PROGRESS` retries; added documented
+query allowlists in `lib/admin/api.ts`; added route-family fixtures in `lib/admin/api.test.ts`;
+expanded `components/operational-pages.tsx` with reconciler controls and quarantine approval/clock/
+executor evidence; corrected infrastructure filter names and reset behavior; strengthened unknown
+projection redaction; added modal focus trapping/return, Escape handling, accessible table regions,
+and role-grant/version guards across admin, feature, quota, customer, billing, and infrastructure
+actions. Security headers now include no-store, HSTS, COOP/CORP, and cross-domain policy controls.
+
+API routes/permissions/step-up decisions: all browser calls remain under the documented
+`/admin/v1` boundary. Query keys now match the documented users, orgs, hosting, deployments,
+domains, databases, VPS, billing, audit, jobs, outbox, and quarantine matrices. Reconciler actions
+use `system.write`; resource actions use their documented `*.write` permission. High-impact actions
+continue to depend on the server's `STEP_UP_REQUIRED` response and replay the original mutation
+with the same idempotency key. Missing current versions no longer default to `1`; the UI waits for a
+valid version. Catalogue action bodies no longer submit an unsupported reason field. No customer,
+worker, provider, PayU, shell, credential, raw payment, environment-value, certificate-key, or
+database-password route is called.
+
+Commands/tests/browser evidence: `npm.cmd run typecheck`, `npm.cmd run lint`,
+`npm.cmd run format:check`, `npm.cmd test` (20 tests across 7 files), `npm.cmd run build`, and
+Playwright desktop/mobile mock tests (16/16) pass. Coverage includes exact envelopes, safe errors,
+CSRF/credentials, network and in-progress idempotency retry, session expiry, permission hooks,
+route/filter allowlists, encoded action paths, RBAC grant ceilings, projection redaction, modal focus
+trap/return, keyboard-scrollable tables, step-up continuation with the same key, real audit/system
+routes, and security headers. Local production-server verification returned 200 for `/`, `/login`,
+`/audit`, and `/system`; it reported `Cache-Control: no-store`, `X-Frame-Options: DENY`,
+`nosniff`, CSP with the documented API connect origin, HSTS, COOP, CORP, and cross-domain policy.
+
+Deployment URL/environment and limitations: no Vercel preview or production URL is claimed.
+`vercel` is unavailable, no Vercel environment names/project file are present, and the safe live API
+probe could not resolve `api.havenerr.com` from this environment. Therefore live admin login, MFA,
+invitation, CORS/cookie, DTO, worker/provider, DNS, Redis, payment, production-clone, and external
+reconciliation proof remain held. The local browser suite uses an isolated mock of the public admin
+boundary and cannot promote AF-5.
+
+Known failures/rollback: no repository check failures remain. The only generated `next-env.d.ts`
+change from the production build was returned to the committed development-generated form; no
+backend files were modified. Rollback is local/reversible until a safe backend and deployment are
+available.
+
+Follow-up feature request: customer feedback ratings/messages (1–5 stars plus a message) is recorded
+as a pending feature only. It was not implemented because this task keeps `D:\API - Havenerr`
+read-only and no reviewed backend schema/route/permission contract exists. Do not invent a feedback
+endpoint; first obtain the backend contract and an explicit scope change for backend implementation.
+
+Next agent: verify a controlled backend environment and exact CORS/cookie behavior; run the live
+login/MFA/invitation/refresh/logout, denied-action, safe-read, step-up, expiry, async, billing, and
+quarantine scenarios; configure a Vercel preview with only the two public origin variables; then
+update this tracker and handoff with external evidence. Separately, if the feedback feature is still
+desired, start by adding the backend contract/schema/permission decision in the backend repository
+under an explicitly approved scope before touching frontend routes.
+
 ## 2026-09-08 - Codex - AF-0 through AF-4 UI baseline
 
 Status: repository baseline committed; live integration and Vercel cutover held.
