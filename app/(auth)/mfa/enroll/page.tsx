@@ -1,21 +1,43 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { AdminApiError } from "@/lib/admin/errors";
 import { useAdminSession } from "@/components/auth/session-context";
 import { Button, Card, CopyValue, Field, InlineAlert, TextInput } from "@/components/ui";
 
 export default function MfaEnrollPage() {
   const router = useRouter();
-  const { status, api, refreshMe } = useAdminSession();
+  const { status, runMutation, refreshMe } = useAdminSession();
   const [enrollment, setEnrollment] = useState<{ secret: string; otpauth_uri: string } | null>(
     null,
   );
   const [recoveryCodes, setRecoveryCodes] = useState<string[] | null>(null);
   const [code, setCode] = useState("");
   const [loading, setLoading] = useState(false);
+  const [enrollmentLoading, setEnrollmentLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const loadEnrollment = useCallback(async () => {
+    setError(null);
+    setEnrollmentLoading(true);
+    try {
+      const result = await runMutation<{ secret: string; otpauth_uri: string }>({
+        path: "/auth/mfa/enroll",
+        body: {},
+        step_up_action: "admin:mfa_enroll",
+      });
+      setEnrollment(result.data);
+    } catch (enrollError) {
+      setError(
+        enrollError instanceof AdminApiError
+          ? enrollError.message
+          : "MFA enrollment could not start.",
+      );
+    } finally {
+      setEnrollmentLoading(false);
+    }
+  }, [runMutation]);
 
   useEffect(() => {
     if (status === "unauthenticated") router.replace("/login");
@@ -24,23 +46,13 @@ export default function MfaEnrollPage() {
   useEffect(() => {
     if (status !== "authenticated" || enrollment) return;
     let cancelled = false;
-    void api
-      .enrollMfa()
-      .then((result) => {
-        if (!cancelled) setEnrollment(result.data);
-      })
-      .catch((enrollError) => {
-        if (!cancelled)
-          setError(
-            enrollError instanceof AdminApiError
-              ? enrollError.message
-              : "MFA enrollment could not start.",
-          );
-      });
+    queueMicrotask(() => {
+      if (!cancelled) void loadEnrollment();
+    });
     return () => {
       cancelled = true;
     };
-  }, [api, enrollment, status]);
+  }, [enrollment, loadEnrollment, status]);
 
   const confirm = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -51,7 +63,11 @@ export default function MfaEnrollPage() {
     }
     setLoading(true);
     try {
-      const result = await api.confirmMfa(code);
+      const result = await runMutation<{ recovery_codes: string[] }>({
+        path: "/auth/mfa/confirm",
+        body: { code },
+        step_up_action: "admin:mfa_confirm",
+      });
       setRecoveryCodes(result.data.recovery_codes);
       await refreshMe();
     } catch (confirmError) {
@@ -141,6 +157,15 @@ export default function MfaEnrollPage() {
                   {error}
                 </InlineAlert>
               ) : null}
+              {error && !enrollment ? (
+                <Button
+                  variant="secondary"
+                  onClick={() => void loadEnrollment()}
+                  loading={enrollmentLoading}
+                >
+                  Retry MFA setup
+                </Button>
+              ) : null}
               <Card className="mfa-card">
                 <div className="qr-placeholder" aria-hidden="true">
                   Authenticator setup
@@ -151,7 +176,10 @@ export default function MfaEnrollPage() {
                   staticContent
                 >
                   <CopyValue
-                    value={enrollment?.secret ?? "Loading setup secret…"}
+                    value={
+                      enrollment?.secret ??
+                      (enrollmentLoading ? "Loading setup secret…" : "MFA setup unavailable")
+                    }
                     label="Copy setup secret"
                   />
                 </Field>
@@ -161,7 +189,10 @@ export default function MfaEnrollPage() {
                   staticContent
                 >
                   <CopyValue
-                    value={enrollment?.otpauth_uri ?? "Loading setup URI…"}
+                    value={
+                      enrollment?.otpauth_uri ??
+                      (enrollmentLoading ? "Loading setup URI…" : "MFA setup unavailable")
+                    }
                     label="Copy authenticator URI"
                   />
                 </Field>
@@ -179,7 +210,13 @@ export default function MfaEnrollPage() {
                     required
                   />
                 </Field>
-                <Button type="submit" variant="primary" loading={loading} className="auth-submit">
+                <Button
+                  type="submit"
+                  variant="primary"
+                  loading={loading}
+                  disabled={!enrollment || enrollmentLoading}
+                  className="auth-submit"
+                >
                   Confirm MFA
                 </Button>
               </form>

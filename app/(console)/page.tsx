@@ -21,7 +21,7 @@ import {
 const metricCandidates = {
   users: ["total_users", "users_total", "user_count", "users"],
   organizations: ["total_orgs", "orgs_total", "organization_count", "organizations"],
-  hosting: ["hosting_projects", "hosting_project_count", "active_services", "services"],
+  projects: ["total_projects", "projects_total", "project_count"],
   failures: ["failed_resources", "failure_count", "billing_failures", "payment_failures"],
 };
 
@@ -68,7 +68,7 @@ function HealthCard({
         <div>
           <p className="eyebrow">Readiness</p>
           <h2>System health</h2>
-          <p>Dependency, worker, queue, and audit-chain observations.</p>
+          <p>Dependencies, durable jobs, outbox, and audit-chain observations.</p>
         </div>
         <StatusBadge
           value={statusValue ?? "UNKNOWN"}
@@ -163,9 +163,9 @@ function ActivityCard({
 export default function OverviewPage() {
   const { admin, status } = useAdminSession();
   const queryClient = useQueryClient();
-  const canAnalytics = hasPermission(admin?.roles ?? [], "analytics.read");
-  const canSystem = hasPermission(admin?.roles ?? [], "system.read");
-  const canAudit = hasPermission(admin?.roles ?? [], "audit.read");
+  const canAnalytics = hasPermission(admin?.permissions ?? [], "analytics.read");
+  const canSystem = hasPermission(admin?.permissions ?? [], "system.read");
+  const canAudit = hasPermission(admin?.permissions ?? [], "audit.read");
   const usage = useAdminQuery(["usage"], (resourceApi) => resourceApi.analytics.usage(), {
     enabled: canAnalytics,
   });
@@ -226,6 +226,14 @@ export default function OverviewPage() {
       {usage.error && canAnalytics ? (
         <InlineAlert tone="danger" title="Usage projection unavailable">
           The bounded usage projection could not be loaded. Other views remain available.
+          <Button
+            variant="quiet"
+            icon="refresh"
+            onClick={() => void usage.refetch()}
+            loading={usage.isFetching}
+          >
+            Retry usage
+          </Button>
         </InlineAlert>
       ) : null}
       <div className="stat-grid">
@@ -241,7 +249,7 @@ export default function OverviewPage() {
           detail={canAnalytics ? "From bounded usage projection" : "Analytics access required"}
           icon="users"
           tone="blue"
-          href={hasPermission(admin?.roles ?? [], "users.read") ? "/users" : undefined}
+          href={hasPermission(admin?.permissions ?? [], "users.read") ? "/users" : undefined}
         />
         <StatCard
           label="Organizations"
@@ -255,21 +263,20 @@ export default function OverviewPage() {
           detail="Role-minimized aggregate"
           icon="building"
           tone="green"
-          href={hasPermission(admin?.roles ?? [], "orgs.read") ? "/organizations" : undefined}
+          href={hasPermission(admin?.permissions ?? [], "orgs.read") ? "/organizations" : undefined}
         />
         <StatCard
-          label="Hosting resources"
+          label="Projects"
           value={
             usage.isLoading ? (
               <Skeleton className="stat-value-skeleton" />
             ) : (
-              displayMetric(scalarAt(usageData, metricCandidates.hosting))
+              displayMetric(scalarAt(usageData, metricCandidates.projects))
             )
           }
-          detail="Desired and observed state"
-          icon="server"
+          detail="Customer projects across managed data products"
+          icon="database"
           tone="blue"
-          href={hasPermission(admin?.roles ?? [], "hosting.read") ? "/hosting" : undefined}
         />
         <StatCard
           label="Failure signals"
@@ -283,7 +290,7 @@ export default function OverviewPage() {
           detail="Reported by the admin projection"
           icon="alert"
           tone="red"
-          href={hasPermission(admin?.roles ?? [], "audit.read") ? "/audit" : undefined}
+          href={hasPermission(admin?.permissions ?? [], "audit.read") ? "/audit" : undefined}
         />
       </div>
       <div className="dashboard-grid">

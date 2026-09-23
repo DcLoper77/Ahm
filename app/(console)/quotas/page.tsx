@@ -24,6 +24,7 @@ import type { AdminRecord } from "@/lib/admin/types";
 
 const quotaKeys = [
   "storage_bytes",
+  "backup_manual_retained",
   "projects",
   "team_members",
   "store_per_project",
@@ -32,13 +33,9 @@ const quotaKeys = [
   "sql_per_project",
   "mongo_per_project",
   "cache_per_project",
-  "backend_slots",
-  "web_slots",
-  "custom_domains",
-  "build_minutes",
-  "bandwidth_bytes",
+  "quick_databases_total",
+  "quick_databases_redis",
   "api_requests_per_min",
-  "deployment_history",
 ] as const;
 
 function overrideRows(data: AdminRecord | undefined): AdminRecord[] {
@@ -52,8 +49,8 @@ function overrideRows(data: AdminRecord | undefined): AdminRecord[] {
 export default function QuotasPage() {
   const { admin, runMutation } = useAdminSession();
   const queryClient = useQueryClient();
-  const canRead = hasPermission(admin?.roles ?? [], "quotas.read");
-  const canWrite = hasPermission(admin?.roles ?? [], "quotas.write");
+  const canRead = hasPermission(admin?.permissions ?? [], "quotas.read");
+  const canWrite = hasPermission(admin?.permissions ?? [], "quotas.write");
   const [orgIdInput, setOrgIdInput] = useState("");
   const [orgId, setOrgId] = useState("");
   const [keyName, setKeyName] = useState<(typeof quotaKeys)[number]>("storage_bytes");
@@ -62,6 +59,8 @@ export default function QuotasPage() {
   const [reason, setReason] = useState("");
   const [expectedVersion, setExpectedVersion] = useState("0");
   const [clearKey, setClearKey] = useState<{ key: string; version: number } | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [mutationError, setMutationError] = useState<string | null>(null);
   const query = useAdminQuery(["quotas", orgId], (api) => api.quotas.get(orgId), {
     enabled: canRead && Boolean(orgId),
   });
@@ -132,22 +131,30 @@ export default function QuotasPage() {
   const setOverride = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!orgId) return;
-    await runMutation({
-      method: "PATCH",
-      path: `/quotas/${encodeURIComponent(orgId)}`,
-      body: {
-        key_name: keyName,
-        value: Number(value),
-        expires_at: expiresAt
-          ? new Date(expiresAt).toISOString()
-          : new Date(Date.now() + 86400000).toISOString(),
-        reason: reason.trim(),
-        expected_version: Number(expectedVersion),
-      },
-      step_up_action: "admin:quota_override",
-    });
-    setReason("");
-    await queryClient.invalidateQueries({ queryKey: ["quotas", orgId] });
+    setSaving(true);
+    setMutationError(null);
+    try {
+      await runMutation({
+        method: "PATCH",
+        path: `/quotas/${encodeURIComponent(orgId)}`,
+        body: {
+          key_name: keyName,
+          value: Number(value),
+          expires_at: new Date(expiresAt).toISOString(),
+          reason: reason.trim(),
+          expected_version: Number(expectedVersion),
+        },
+        step_up_action: "admin:quota_override",
+      });
+      setReason("");
+      await queryClient.invalidateQueries({ queryKey: ["quotas", orgId] });
+    } catch (error) {
+      setMutationError(
+        error instanceof Error ? error.message : "The quota override could not be saved.",
+      );
+    } finally {
+      setSaving(false);
+    }
   };
   const clear = async () => {
     if (!clearKey || !orgId) return;
@@ -223,6 +230,11 @@ export default function QuotasPage() {
       </Card>
       {orgId ? (
         <div className="stack" style={{ marginTop: 18 }}>
+          {mutationError ? (
+            <p className="field-error" role="alert">
+              {mutationError}
+            </p>
+          ) : null}
           <Card>
             <div className="card-heading">
               <div>
@@ -286,7 +298,7 @@ export default function QuotasPage() {
                   <Field label="Value">
                     <TextInput
                       type="number"
-                      min="0"
+                      min={keyName === "quick_databases_total" ? "-1" : "0"}
                       value={value}
                       onChange={(event) => setValue(event.target.value)}
                       required
@@ -329,9 +341,8 @@ export default function QuotasPage() {
                   type="submit"
                   variant="primary"
                   icon="check"
-                  loading={
-                    queryClient.getQueryData(["quotas", orgId]) === undefined && query.isFetching
-                  }
+                  loading={saving}
+                  disabled={saving}
                 >
                   Set typed override
                 </Button>

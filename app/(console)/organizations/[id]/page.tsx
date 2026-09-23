@@ -10,23 +10,44 @@ import { useAdminSession } from "@/components/auth/session-context";
 import { ConfirmActionModal } from "@/components/confirm-action";
 import { QueryEmpty, QueryError, QueryLoading } from "@/components/data-states";
 import { AuditRef, RecordFacts, SafeRecordSummary } from "@/components/record-view";
-import { Badge, Button, Card, PageHeader, StatusBadge } from "@/components/ui";
+import { formatBytes, formatDate, humanize } from "@/lib/admin/format";
+import { Badge, Button, Card, PageHeader, StatCard, StatusBadge } from "@/components/ui";
 
 export default function OrganizationDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const queryClient = useQueryClient();
   const { admin, runMutation } = useAdminSession();
-  const canRead = hasPermission(admin?.roles ?? [], "orgs.read");
-  const canMutate = hasPermission(admin?.roles ?? [], "orgs.suspend");
+  const canRead = hasPermission(admin?.permissions ?? [], "orgs.read");
+  const canMutate = hasPermission(admin?.permissions ?? [], "orgs.suspend");
   const query = useAdminQuery(
     ["organization", params.id],
     (api) => api.organizations.detail(params.id),
     { enabled: canRead },
   );
+  const canAnalytics = hasPermission(admin?.permissions ?? [], "analytics.read");
+  const usageQuery = useAdminQuery(
+    ["organization-usage", params.id],
+    (api) => api.analytics.organizationUsage(params.id),
+    { enabled: canAnalytics },
+  );
   const [action, setAction] = useState<"suspend" | "restore" | null>(null);
   const [requestId, setRequestId] = useState<string | null>(null);
   const organization = query.data?.data.org;
+  const rawUsage = usageQuery.data?.data.organization;
+  const usage =
+    rawUsage && typeof rawUsage === "object" && !Array.isArray(rawUsage)
+      ? (rawUsage as Record<string, unknown>)
+      : undefined;
+  const storage =
+    usage?.storage && typeof usage.storage === "object" && !Array.isArray(usage.storage)
+      ? (usage.storage as Record<string, unknown>)
+      : undefined;
+  const usageMetrics = Array.isArray(storage?.by_metric) ? storage.by_metric : [];
+  const primaryMetric =
+    usageMetrics[0] && typeof usageMetrics[0] === "object"
+      ? (usageMetrics[0] as Record<string, unknown>)
+      : undefined;
 
   const submit = async (input: { reason?: string; expected_version?: number }) => {
     if (!organization || !action) return;
@@ -91,8 +112,8 @@ export default function OrganizationDetailPage() {
   const billingProjection = organization.billing;
   const billingState =
     organization.billing_state ??
-    (billingProjection && typeof billingProjection === "object" && "state" in billingProjection
-      ? (billingProjection as { state?: unknown }).state
+    (billingProjection && typeof billingProjection === "object" && "status" in billingProjection
+      ? (billingProjection as { status?: unknown }).status
       : undefined);
   return (
     <>
@@ -131,14 +152,71 @@ export default function OrganizationDetailPage() {
           <div className="card-heading">
             <div>
               <h2>Service action accepted</h2>
-              <p>
-                Hosting and database effects converge asynchronously; billing state is unchanged.
-              </p>
+              <p>Database effects converge asynchronously; billing state is unchanged.</p>
             </div>
             <AuditRef requestId={requestId} />
           </div>
         </Card>
       ) : null}
+      <Card>
+        <div className="card-heading">
+          <div>
+            <h2>Organization usage</h2>
+            <p>Bounded counts and sampled storage observations from the analytics projection.</p>
+          </div>
+          <Badge tone="neutral">
+            {canAnalytics ? "Analytics projection" : "Analytics access required"}
+          </Badge>
+        </div>
+        {!canAnalytics ? (
+          <QueryEmpty
+            title="Permission required"
+            description="Ask for analytics.read to inspect organization usage."
+          />
+        ) : usageQuery.isLoading ? (
+          <QueryLoading label="Loading organization usage…" />
+        ) : usageQuery.error ? (
+          <QueryError error={usageQuery.error} onRetry={() => void usageQuery.refetch()} />
+        ) : usage ? (
+          <>
+            <div className="stat-grid">
+              <StatCard
+                label="Members"
+                value={String(usage.members ?? "—")}
+                icon="users"
+                tone="blue"
+              />
+              <StatCard
+                label="Projects"
+                value={String(usage.projects ?? "—")}
+                icon="spark"
+                tone="green"
+              />
+              <StatCard
+                label="Project databases"
+                value={String(usage.databases ?? "—")}
+                icon="database"
+                tone="blue"
+              />
+              <StatCard
+                label="Observed storage"
+                value={formatBytes(storage?.total_bytes)}
+                detail={humanize(primaryMetric?.confidence ?? "not reported")}
+                icon="layers"
+                tone="amber"
+              />
+            </div>
+            <p className="security-note">
+              Sampled at {formatDate(storage?.sampled_at)}. A missing sample is not shown as zero.
+            </p>
+          </>
+        ) : (
+          <QueryEmpty
+            title="No usage observation"
+            description="The analytics projection returned no organization usage record."
+          />
+        )}
+      </Card>
       <div className="detail-grid">
         <div className="stack">
           <Card>
@@ -156,7 +234,7 @@ export default function OrganizationDetailPage() {
                   { key: "id", label: "Organization ID", kind: "id" },
                   { key: "kind", label: "Kind" },
                   { key: "plan_code", label: "Plan" },
-                  { key: "service_state", label: "Service state", kind: "status" },
+                  { key: "state", label: "Organization state", kind: "status" },
                   { key: "billing_state", label: "Billing state", kind: "status" },
                   { key: "version", label: "Version" },
                   { key: "created_at", label: "Created", kind: "date" },
@@ -177,10 +255,9 @@ export default function OrganizationDetailPage() {
                 record={organization}
                 fields={[
                   { key: "owner_user_id", label: "Owner user", kind: "id" },
-                  { key: "membership_count", label: "Members" },
-                  { key: "project_count", label: "Projects" },
-                  { key: "resource_count", label: "Resources" },
-                  { key: "active_service_count", label: "Active services" },
+                  { key: "aggregates.member_count", label: "Members" },
+                  { key: "aggregates.project_count", label: "Projects" },
+                  { key: "aggregates.resource_count", label: "Resources" },
                 ]}
               />
             </div>
@@ -199,8 +276,8 @@ export default function OrganizationDetailPage() {
             </div>
             <div className="detail-section">
               <p className="security-note">
-                Service suspension creates durable hosting and database effects. Subscription,
-                invoices, and payment records remain in their own billing lifecycle.
+                Service suspension creates durable database effects. Subscription, invoices, and
+                payment records remain in their own billing lifecycle.
               </p>
               <div className="detail-rows" style={{ marginTop: 12 }}>
                 <div className="detail-row">
@@ -241,7 +318,7 @@ export default function OrganizationDetailPage() {
           target={name}
           description={
             action === "suspend"
-              ? "This creates durable hosting and database effects while leaving billing state unchanged."
+              ? "This creates durable database effects while leaving billing state unchanged."
               : "This restores services through the guarded organization transition."
           }
           actionLabel={action === "suspend" ? "Suspend services" : "Restore services"}

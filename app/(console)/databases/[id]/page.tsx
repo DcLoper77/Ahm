@@ -1,9 +1,9 @@
 "use client";
 
 import { useParams } from "next/navigation";
-import { InfraDetailPage } from "@/components/infra/resource-page";
+import { DatabaseDetailPage } from "@/components/infra/database-pages";
 
 export default function DatabaseDetailRoute() {
   const params = useParams<{ id: string }>();
-  return <InfraDetailPage kind="databases" id={params.id} />;
+  return <DatabaseDetailPage id={params.id} />;
 }

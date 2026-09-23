@@ -1,6 +1,8 @@
 import { AdminApiClient, type ApiResult } from "./client";
 import type { AdminAcceptInvitationBody, AdminInvitationBody, AdminLoginBody } from "./bodies";
 import type {
+  ActiveProductCatalogue,
+  AddonDraftItem,
   AdminInvitationResult,
   AdminInvitationSummary,
   AdminListQuery,
@@ -12,15 +14,24 @@ import type {
   AdminUserSummary,
   CatalogueActionResult,
   CatalogueRevision,
+  CustomerFeedbackSummary,
   CustomerUserDetail,
   CustomerUserSummary,
-  CustomerFeedbackSummary,
+  CustomTierDraftBody,
+  CustomTierSummary,
   OrganizationDetail,
   OrganizationSummary,
   PlanDraftItem,
-  ServiceDraftItem,
+  TierAssignmentBody,
+  TierAssignmentSummary,
+  TierRevision,
 } from "./types";
 import { encodeSegment } from "./client";
+
+export interface ProductCatalogueDraft {
+  plans: PlanDraftItem[];
+  addons: AddonDraftItem[];
+}
 
 export interface AdminAuthApi {
   login(body: AdminLoginBody): Promise<ApiResult<AdminLoginResult>>;
@@ -29,7 +40,7 @@ export interface AdminAuthApi {
   logout(): Promise<ApiResult<{ logged_out: true }>>;
   sessions(): Promise<ApiResult<{ sessions: AdminSessionSummary[] }>>;
   revokeSession(sessionId: string, idempotencyKey?: string): Promise<ApiResult<{ revoked: true }>>;
-  revokeAll(idempotencyKey?: string): Promise<ApiResult<AdminRecord>>;
+  revokeAll(idempotencyKey?: string): Promise<ApiResult<{ revoked: number }>>;
   enrollMfa(idempotencyKey?: string): Promise<ApiResult<{ secret: string; otpauth_uri: string }>>;
   confirmMfa(
     code: string,
@@ -83,6 +94,18 @@ export interface AdminResourceApi {
       body: { reason: string; expected_version: number },
       idempotencyKey?: string,
     ): Promise<ApiResult<AdminRecord>>;
+    tierAssignments(userId: string): Promise<ApiResult<{ assignments: TierAssignmentSummary[] }>>;
+    assignTier(
+      userId: string,
+      body: TierAssignmentBody,
+      idempotencyKey?: string,
+    ): Promise<ApiResult<{ assignment: TierAssignmentSummary; tier: TierRevision }>>;
+    revokeTierAssignment(
+      userId: string,
+      assignmentId: string,
+      body: { reason: string; expected_version: number },
+      idempotencyKey?: string,
+    ): Promise<ApiResult<AdminRecord>>;
   };
   organizations: {
     list(
@@ -97,27 +120,29 @@ export interface AdminResourceApi {
     ): Promise<ApiResult<AdminRecord>>;
   };
   catalogue: {
-    revisions(
-      kind: "plans" | "services" | "vps",
-    ): Promise<ApiResult<{ kind: string; revisions: CatalogueRevision[] }>>;
-    createPlanDraft(
-      body: { source_sha256?: string; plans: PlanDraftItem[] },
+    revisions(): Promise<
+      ApiResult<{
+        kind: "plans";
+        revisions: CatalogueRevision[];
+        active_catalogue: ActiveProductCatalogue;
+      }>
+    >;
+    revision(
+      revisionId: string,
+    ): Promise<
+      ApiResult<{ kind: "plans"; revision: CatalogueRevision; definition: ProductCatalogueDraft }>
+    >;
+    createDraft(
+      body: ProductCatalogueDraft,
       idempotencyKey?: string,
-    ): Promise<ApiResult<AdminRecord>>;
-    createServiceDraft(
-      body: { source_sha256?: string; services: ServiceDraftItem[] },
-      idempotencyKey?: string,
-    ): Promise<ApiResult<AdminRecord>>;
-    createVpsDraft(body: AdminRecord, idempotencyKey?: string): Promise<ApiResult<AdminRecord>>;
-    diff(kind: "plans" | "services" | "vps", revision: number): Promise<ApiResult<AdminRecord>>;
+    ): Promise<ApiResult<{ revision: CatalogueRevision }>>;
+    diff(revisionId: string): Promise<ApiResult<AdminRecord>>;
     action(
-      kind: "plans" | "services" | "vps",
-      revision: number,
+      revisionId: string,
       action: "validate" | "publish" | "retire",
       body: { expected_version: number },
       idempotencyKey?: string,
     ): Promise<ApiResult<CatalogueActionResult>>;
-    activeServices(): Promise<ApiResult<AdminRecord>>;
     features(): Promise<ApiResult<AdminRecord>>;
     setFeature(
       key: string,
@@ -135,40 +160,6 @@ export interface AdminResourceApi {
       idempotencyKey?: string,
     ): Promise<ApiResult<AdminRecord>>;
   };
-  hosting: {
-    projects(
-      query?: AdminListQuery,
-    ): Promise<ApiResult<{ hosting_projects: AdminRecord[]; next_cursor: string | null }>>;
-    project(projectId: string): Promise<ApiResult<AdminRecord>>;
-    projectAction(
-      projectId: string,
-      action: "start" | "stop" | "restart" | "suspend" | "restore" | "reconcile",
-      body: AdminRecord,
-      idempotencyKey?: string,
-    ): Promise<ApiResult<AdminRecord>>;
-    deployments(
-      query?: AdminListQuery,
-    ): Promise<ApiResult<{ deployments: AdminRecord[]; next_cursor: string | null }>>;
-    deployment(deploymentId: string): Promise<ApiResult<AdminRecord>>;
-    deploymentAction(
-      deploymentId: string,
-      action: "rollback" | "reconcile",
-      body?: AdminRecord,
-      idempotencyKey?: string,
-    ): Promise<ApiResult<AdminRecord>>;
-  };
-  domains: {
-    list(
-      query?: AdminListQuery,
-    ): Promise<ApiResult<{ domains: AdminRecord[]; next_cursor: string | null }>>;
-    detail(domainId: string): Promise<ApiResult<AdminRecord>>;
-    action(
-      domainId: string,
-      action: "reverify" | "suspend" | "restore" | "remove",
-      body: AdminRecord,
-      idempotencyKey?: string,
-    ): Promise<ApiResult<AdminRecord>>;
-  };
   databases: {
     list(
       query?: AdminListQuery,
@@ -176,22 +167,45 @@ export interface AdminResourceApi {
     detail(databaseId: string): Promise<ApiResult<AdminRecord>>;
     action(
       databaseId: string,
-      action: "suspend" | "resume" | "reconcile",
-      body: AdminRecord,
+      action: "suspend" | "resume",
+      body: { expected_version: number; reason?: string },
       idempotencyKey?: string,
     ): Promise<ApiResult<AdminRecord>>;
   };
-  vps: {
-    list(
-      query?: AdminListQuery,
-    ): Promise<ApiResult<{ vps: AdminRecord[]; next_cursor: string | null }>>;
-    detail(vpsId: string): Promise<ApiResult<AdminRecord>>;
-    action(
-      vpsId: string,
-      action: "start" | "stop" | "restart" | "suspend" | "restore" | "reconcile",
-      body: AdminRecord,
+  quickDatabases: {
+    list(query?: AdminListQuery): Promise<
+      ApiResult<{
+        quick_databases: AdminRecord[];
+        quota: AdminRecord | null;
+        next_cursor: string | null;
+      }>
+    >;
+    detail(quickDatabaseId: string): Promise<ApiResult<{ quick_database: AdminRecord }>>;
+  };
+  tiers: {
+    list(): Promise<ApiResult<{ tiers: CustomTierSummary[]; next_cursor: string | null }>>;
+    detail(tierId: string): Promise<
+      ApiResult<{
+        tier: CustomTierSummary;
+        revisions?: TierRevision[];
+        assignments: TierAssignmentSummary[];
+      }>
+    >;
+    create(
+      body: CustomTierDraftBody & { key: string },
       idempotencyKey?: string,
-    ): Promise<ApiResult<AdminRecord>>;
+    ): Promise<ApiResult<{ tier: CustomTierSummary }>>;
+    patch(
+      tierId: string,
+      body: CustomTierDraftBody & { expected_version: number },
+      idempotencyKey?: string,
+    ): Promise<ApiResult<{ tier: CustomTierSummary }>>;
+    action(
+      tierId: string,
+      action: "validate" | "publish" | "archive",
+      body: { expected_version: number; reason?: string },
+      idempotencyKey?: string,
+    ): Promise<ApiResult<{ tier: CustomTierSummary }>>;
   };
   billing: {
     subscriptions(
@@ -206,9 +220,14 @@ export interface AdminResourceApi {
       query?: AdminListQuery,
     ): Promise<ApiResult<{ payments: AdminRecord[]; next_cursor: string | null }>>;
     payment(id: string): Promise<ApiResult<AdminRecord>>;
-    refund(
+    correctPayment(
       paymentId: string,
-      body: { amount_minor?: number; reason: string },
+      body: {
+        amount_minor?: number;
+        correction_class:
+          "DUPLICATE_CAPTURE" | "PROVIDER_CORRECTION" | "LEGAL_CORRECTION" | "CHARGEBACK_REVERSAL";
+        reason: string;
+      },
       idempotencyKey?: string,
     ): Promise<ApiResult<AdminRecord>>;
     refunds(
@@ -217,7 +236,7 @@ export interface AdminResourceApi {
     refundDetail(id: string): Promise<ApiResult<AdminRecord>>;
     cancelSubscription(
       id: string,
-      body: { expected_version: number; immediate?: boolean; reason: string },
+      body: { expected_version: number; reason: string },
       idempotencyKey?: string,
     ): Promise<ApiResult<AdminRecord>>;
     reconcile(body?: { reason?: string }, idempotencyKey?: string): Promise<ApiResult<AdminRecord>>;
@@ -239,15 +258,13 @@ export interface AdminResourceApi {
   };
   system: {
     health(): Promise<ApiResult<AdminRecord>>;
-    workers(): Promise<ApiResult<{ workers: AdminRecord[] }>>;
     jobs(query?: AdminListQuery): Promise<ApiResult<AdminRecord>>;
     outbox(query?: AdminListQuery): Promise<ApiResult<AdminRecord>>;
     quarantine(query?: AdminListQuery): Promise<ApiResult<AdminRecord>>;
     requeueJob(jobId: string, idempotencyKey?: string): Promise<ApiResult<AdminRecord>>;
     requeueOutbox(outboxId: string, idempotencyKey?: string): Promise<ApiResult<AdminRecord>>;
     runReconciler(
-      system: "hosting" | "databases" | "vps" | "billing",
-      body?: { reason?: string },
+      system: "databases" | "quick_databases" | "billing",
       idempotencyKey?: string,
     ): Promise<ApiResult<AdminRecord>>;
     quarantineAction(
@@ -286,7 +303,6 @@ export function createAdminApi(client: AdminApiClient): AdminAuthApi & AdminReso
       client.post<AdminLoginResult, AdminLoginBody>("/auth/login", body, {
         requiresIdempotency: false,
         requiresCsrf: false,
-        retryNetwork: false,
       }),
     me: () => client.get<AdminMe>("/auth/me"),
     refresh: () =>
@@ -294,93 +310,113 @@ export function createAdminApi(client: AdminApiClient): AdminAuthApi & AdminReso
     logout: () =>
       client.post<{ logged_out: true }, Record<string, never>>("/auth/logout", {}, keyOptions()),
     sessions: () => client.get<{ sessions: AdminSessionSummary[] }>("/auth/sessions"),
-    revokeSession: (sessionId, idempotencyKey) =>
+    revokeSession: (id, key) =>
       client.post<{ revoked: true }, Record<string, never>>(
-        actionPath("/auth/sessions", sessionId, "revoke"),
+        actionPath("/auth/sessions", id, "revoke"),
         {},
-        keyOptions(idempotencyKey),
+        keyOptions(key),
       ),
-    revokeAll: (idempotencyKey) =>
-      client.post<AdminRecord, Record<string, never>>(
+    revokeAll: (key) =>
+      client.post<{ revoked: number }, Record<string, never>>(
         "/auth/sessions/revoke-all",
         {},
-        keyOptions(idempotencyKey),
+        keyOptions(key),
       ),
-    enrollMfa: (idempotencyKey) =>
+    enrollMfa: (key) =>
       client.post<{ secret: string; otpauth_uri: string }, Record<string, never>>(
         "/auth/mfa/enroll",
         {},
-        keyOptions(idempotencyKey),
+        keyOptions(key),
       ),
-    confirmMfa: (code, idempotencyKey) =>
+    confirmMfa: (code, key) =>
       client.post<{ recovery_codes: string[] }, { code: string }>(
         "/auth/mfa/confirm",
         { code },
-        keyOptions(idempotencyKey),
+        keyOptions(key),
       ),
-    rotateRecoveryCodes: (code, idempotencyKey) =>
+    rotateRecoveryCodes: (code, key) =>
       client.post<{ recovery_codes: string[] }, { code: string }>(
         "/auth/mfa/recovery-codes/rotate",
         { code },
-        keyOptions(idempotencyKey),
+        keyOptions(key),
       ),
-    rotatePassword: (body, idempotencyKey) =>
-      client.post<{ rotated: true }, typeof body>(
-        "/auth/password/rotate",
-        body,
-        keyOptions(idempotencyKey),
-      ),
-    acceptInvitation: (token, body, idempotencyKey) =>
+    rotatePassword: (body, key) =>
+      client.post<{ rotated: true }, typeof body>("/auth/password/rotate", body, keyOptions(key)),
+    acceptInvitation: (token, body, key) =>
       client.post<AdminLoginResult, AdminAcceptInvitationBody>(
         actionPath("/invitations", token, "accept"),
         body,
-        keyOptions(idempotencyKey),
+        keyOptions(key),
       ),
   };
 
   const resources: AdminResourceApi = {
     admins: {
       list: () => client.get<{ admins: AdminUserSummary[] }>("/admins"),
-      invite: (body, idempotencyKey) =>
+      invite: (body, key) =>
         client.post<AdminInvitationResult, AdminInvitationBody>(
           "/invitations",
           body,
-          keyOptions(idempotencyKey),
+          keyOptions(key),
         ),
-      patch: (id, body, idempotencyKey) =>
+      patch: (id, body, key) =>
         client.patch<AdminRecord, AdminRecord>(
           `/admins/${encodeSegment(id)}`,
           body,
-          keyOptions(idempotencyKey),
+          keyOptions(key),
         ),
-      disable: (id, expected_version, idempotencyKey) =>
+      disable: (id, expected_version, key) =>
         client.post<{ disabled: true }, { expected_version: number }>(
           actionPath("/admins", id, "disable"),
           { expected_version },
-          keyOptions(idempotencyKey),
+          keyOptions(key),
         ),
     },
     invitations: {
       list: () => client.get<{ invitations: AdminInvitationSummary[] }>("/invitations"),
-      revoke: (id, idempotencyKey) =>
+      revoke: (id, key) =>
         client.post<AdminRecord, Record<string, never>>(
           actionPath("/invitations", id, "revoke"),
           {},
-          keyOptions(idempotencyKey),
+          keyOptions(key),
         ),
     },
     users: {
       list: (query) =>
         client.get<{ users: CustomerUserSummary[]; next_cursor: string | null }>(
           "/users",
-          pickQuery(query, ["cursor", "limit", "status", "email", "sort_by", "sort_order"]),
+          pickQuery(query, [
+            "cursor",
+            "limit",
+            "status",
+            "email",
+            "tier_id",
+            "sort_by",
+            "sort_order",
+          ]),
         ),
       detail: (id) => client.get<CustomerUserDetail>(`/users/${encodeSegment(id)}`),
-      action: (id, action, body, idempotencyKey) =>
+      action: (id, action, body, key) =>
         client.post<AdminRecord, typeof body>(
           actionPath("/users", id, action),
           body,
-          keyOptions(idempotencyKey),
+          keyOptions(key),
+        ),
+      tierAssignments: (id) =>
+        client.get<{ assignments: TierAssignmentSummary[] }>(
+          `/users/${encodeSegment(id)}/tier-assignments`,
+        ),
+      assignTier: (id, body, key) =>
+        client.post<{ assignment: TierAssignmentSummary; tier: TierRevision }, TierAssignmentBody>(
+          `/users/${encodeSegment(id)}/tier-assignments`,
+          body,
+          keyOptions(key),
+        ),
+      revokeTierAssignment: (userId, assignmentId, body, key) =>
+        client.post<AdminRecord, typeof body>(
+          actionPath(`/users/${encodeSegment(userId)}/tier-assignments`, assignmentId, "revoke"),
+          body,
+          keyOptions(key),
         ),
     },
     organizations: {
@@ -399,33 +435,39 @@ export function createAdminApi(client: AdminApiClient): AdminAuthApi & AdminReso
           ]),
         ),
       detail: (id) => client.get<OrganizationDetail>(`/orgs/${encodeSegment(id)}`),
-      action: (id, action, body, idempotencyKey) =>
+      action: (id, action, body, key) =>
         client.post<AdminRecord, typeof body>(
           actionPath("/orgs", id, action),
           body,
-          keyOptions(idempotencyKey),
+          keyOptions(key),
         ),
     },
     catalogue: {
-      revisions: (kind) => client.get<{ kind: string; revisions: CatalogueRevision[] }>(`/${kind}`),
-      createPlanDraft: (body, idempotencyKey) =>
-        client.post<AdminRecord, typeof body>("/plans/versions", body, keyOptions(idempotencyKey)),
-      createServiceDraft: (body, idempotencyKey) =>
-        client.post<AdminRecord, typeof body>(
-          "/services/versions",
+      revisions: () =>
+        client.get<{
+          kind: "plans";
+          revisions: CatalogueRevision[];
+          active_catalogue: ActiveProductCatalogue;
+        }>("/plans"),
+      revision: (id) =>
+        client.get<{
+          kind: "plans";
+          revision: CatalogueRevision;
+          definition: ProductCatalogueDraft;
+        }>(`/plans/versions/${encodeSegment(id)}`),
+      createDraft: (body, key) =>
+        client.post<{ revision: CatalogueRevision }, ProductCatalogueDraft>(
+          "/plans/versions",
           body,
-          keyOptions(idempotencyKey),
+          keyOptions(key),
         ),
-      createVpsDraft: (body, idempotencyKey) =>
-        client.post<AdminRecord, AdminRecord>("/vps/versions", body, keyOptions(idempotencyKey)),
-      diff: (kind, revision) => client.get<AdminRecord>(`/${kind}/versions/${revision}:diff`),
-      action: (kind, revision, action, body, idempotencyKey) =>
+      diff: (id) => client.get<AdminRecord>(`/plans/versions/${encodeSegment(id)}:diff`),
+      action: (id, action, body, key) =>
         client.post<CatalogueActionResult, typeof body>(
-          `/${kind}/versions/${revision}:${action}`,
+          actionPath("/plans/versions", id, action),
           body,
-          keyOptions(idempotencyKey),
+          keyOptions(key),
         ),
-      activeServices: () => client.get<AdminRecord>("/services/catalog"),
       features: () => client.get<AdminRecord>("/features"),
       setFeature: (key, body, idempotencyKey) =>
         client.patch<AdminRecord, typeof body>(
@@ -436,86 +478,17 @@ export function createAdminApi(client: AdminApiClient): AdminAuthApi & AdminReso
     },
     quotas: {
       get: (id) => client.get<AdminRecord>(`/quotas/${encodeSegment(id)}`),
-      set: (id, body, idempotencyKey) =>
+      set: (id, body, key) =>
         client.patch<AdminRecord, AdminRecord>(
           `/quotas/${encodeSegment(id)}`,
           body,
-          keyOptions(idempotencyKey),
+          keyOptions(key),
         ),
-      clear: (id, keyName, expected_version, idempotencyKey) =>
+      clear: (id, keyName, expected_version, key) =>
         client.delete<AdminRecord, { expected_version: number }>(
           actionPath(`/quotas/${encodeSegment(id)}`, keyName, "clear"),
           { expected_version },
-          keyOptions(idempotencyKey),
-        ),
-    },
-    hosting: {
-      projects: (query) =>
-        client.get<{ hosting_projects: AdminRecord[]; next_cursor: string | null }>(
-          "/hosting/projects",
-          pickQuery(query, [
-            "cursor",
-            "limit",
-            "sort_order",
-            "org_id",
-            "type",
-            "desired_state",
-            "sync_state",
-            "sort_by",
-          ]),
-        ),
-      project: (id) => client.get<AdminRecord>(`/hosting/projects/${encodeSegment(id)}`),
-      projectAction: (id, action, body, idempotencyKey) =>
-        client.post<AdminRecord, AdminRecord>(
-          actionPath("/hosting/projects", id, action),
-          body,
-          keyOptions(idempotencyKey),
-        ),
-      deployments: (query) =>
-        client.get<{ deployments: AdminRecord[]; next_cursor: string | null }>(
-          "/hosting/deployments",
-          pickQuery(query, [
-            "cursor",
-            "limit",
-            "sort_order",
-            "org_id",
-            "service_id",
-            "state",
-            "failure_stage",
-            "sort_by",
-          ]),
-        ),
-      deployment: (id) => client.get<AdminRecord>(`/hosting/deployments/${encodeSegment(id)}`),
-      deploymentAction: (id, action, body, idempotencyKey) =>
-        client.post<AdminRecord, AdminRecord>(
-          actionPath("/hosting/deployments", id, action),
-          body ?? {},
-          keyOptions(idempotencyKey),
-        ),
-    },
-    domains: {
-      list: (query) =>
-        client.get<{ domains: AdminRecord[]; next_cursor: string | null }>(
-          "/domains",
-          pickQuery(query, [
-            "cursor",
-            "limit",
-            "sort_order",
-            "org_id",
-            "service_id",
-            "state",
-            "ownership_state",
-            "routing_state",
-            "certificate_state",
-            "sort_by",
-          ]),
-        ),
-      detail: (id) => client.get<AdminRecord>(`/domains/${encodeSegment(id)}`),
-      action: (id, action, body, idempotencyKey) =>
-        client.post<AdminRecord, AdminRecord>(
-          actionPath("/domains", id, action),
-          body,
-          keyOptions(idempotencyKey),
+          keyOptions(key),
         ),
     },
     databases: {
@@ -534,34 +507,50 @@ export function createAdminApi(client: AdminApiClient): AdminAuthApi & AdminReso
           ]),
         ),
       detail: (id) => client.get<AdminRecord>(`/databases/${encodeSegment(id)}`),
-      action: (id, action, body, idempotencyKey) =>
+      action: (id, action, body, key) =>
         client.post<AdminRecord, AdminRecord>(
           actionPath("/databases", id, action),
           body,
-          keyOptions(idempotencyKey),
+          keyOptions(key),
         ),
     },
-    vps: {
+    quickDatabases: {
       list: (query) =>
-        client.get<{ vps: AdminRecord[]; next_cursor: string | null }>(
-          "/infrastructure/vps",
-          pickQuery(query, [
-            "cursor",
-            "limit",
-            "sort_order",
-            "org_id",
-            "state",
-            "sku",
-            "bundled",
-            "sort_by",
-          ]),
+        client.get<{
+          quick_databases: AdminRecord[];
+          quota: AdminRecord | null;
+          next_cursor: string | null;
+        }>(
+          "/quick-databases",
+          pickQuery(query, ["cursor", "limit", "sort_order", "org_id", "kind", "state"]),
         ),
-      detail: (id) => client.get<AdminRecord>(`/infrastructure/vps/${encodeSegment(id)}`),
-      action: (id, action, body, idempotencyKey) =>
-        client.post<AdminRecord, AdminRecord>(
-          actionPath("/infrastructure/vps", id, action),
+      detail: (id) =>
+        client.get<{ quick_database: AdminRecord }>(`/quick-databases/${encodeSegment(id)}`),
+    },
+    tiers: {
+      list: () => client.get<{ tiers: CustomTierSummary[]; next_cursor: string | null }>("/tiers"),
+      detail: (id) =>
+        client.get<{
+          tier: CustomTierSummary;
+          revisions?: TierRevision[];
+          assignments: TierAssignmentSummary[];
+        }>(`/tiers/${encodeSegment(id)}`),
+      create: (body, key) =>
+        client.post<{ tier: CustomTierSummary }, CustomTierDraftBody & { key: string }>(
+          "/tiers",
           body,
-          keyOptions(idempotencyKey),
+          keyOptions(key),
+        ),
+      patch: (id, body, key) =>
+        client.patch<
+          { tier: CustomTierSummary },
+          CustomTierDraftBody & { expected_version: number }
+        >(`/tiers/${encodeSegment(id)}`, body, keyOptions(key)),
+      action: (id, action, body, key) =>
+        client.post<{ tier: CustomTierSummary }, typeof body>(
+          actionPath("/tiers", id, action),
+          body,
+          keyOptions(key),
         ),
     },
     billing: {
@@ -608,11 +597,11 @@ export function createAdminApi(client: AdminApiClient): AdminAuthApi & AdminReso
           ]),
         ),
       payment: (id) => client.get<AdminRecord>(`/billing/payments/${encodeSegment(id)}`),
-      refund: (id, body, idempotencyKey) =>
+      correctPayment: (id, body, key) =>
         client.post<AdminRecord, typeof body>(
-          actionPath("/billing/payments", id, "refund"),
+          actionPath("/billing/payments", id, "correct"),
           body,
-          keyOptions(idempotencyKey),
+          { ...keyOptions(key), moneyMoving: true },
         ),
       refunds: (query) =>
         client.get<{ refunds: AdminRecord[]; next_cursor: string | null }>(
@@ -628,18 +617,14 @@ export function createAdminApi(client: AdminApiClient): AdminAuthApi & AdminReso
           ]),
         ),
       refundDetail: (id) => client.get<AdminRecord>(`/billing/refunds/${encodeSegment(id)}`),
-      cancelSubscription: (id, body, idempotencyKey) =>
+      cancelSubscription: (id, body, key) =>
         client.post<AdminRecord, typeof body>(
           actionPath("/billing/subscriptions", id, "cancel"),
           body,
-          keyOptions(idempotencyKey),
+          keyOptions(key),
         ),
-      reconcile: (body, idempotencyKey) =>
-        client.post<AdminRecord, typeof body>(
-          "/billing/reconcile",
-          body ?? {},
-          keyOptions(idempotencyKey),
-        ),
+      reconcile: (body, key) =>
+        client.post<AdminRecord, typeof body>("/billing/reconcile", body ?? {}, keyOptions(key)),
     },
     analytics: {
       usage: () => client.get<AdminRecord>("/usage"),
@@ -685,7 +670,6 @@ export function createAdminApi(client: AdminApiClient): AdminAuthApi & AdminReso
     },
     system: {
       health: () => client.get<AdminRecord>("/system/health"),
-      workers: () => client.get<{ workers: AdminRecord[] }>("/system/workers"),
       jobs: (query) =>
         client.get<AdminRecord>(
           "/system/jobs",
@@ -701,29 +685,29 @@ export function createAdminApi(client: AdminApiClient): AdminAuthApi & AdminReso
           "/system/quarantine",
           pickQuery(query, ["cursor", "limit", "system", "state", "drift_class", "sort_order"]),
         ),
-      requeueJob: (id, idempotencyKey) =>
+      requeueJob: (id, key) =>
         client.post<AdminRecord, Record<string, never>>(
           actionPath("/system/jobs", id, "requeue"),
           {},
-          keyOptions(idempotencyKey),
+          keyOptions(key),
         ),
-      requeueOutbox: (id, idempotencyKey) =>
+      requeueOutbox: (id, key) =>
         client.post<AdminRecord, Record<string, never>>(
           actionPath("/system/outbox", id, "requeue"),
           {},
-          keyOptions(idempotencyKey),
+          keyOptions(key),
         ),
-      runReconciler: (system, body, idempotencyKey) =>
-        client.post<AdminRecord, typeof body>(
+      runReconciler: (system, key) =>
+        client.post<AdminRecord, Record<string, never>>(
           actionPath("/system/reconcilers", system, "run"),
-          body ?? {},
-          keyOptions(idempotencyKey),
+          {},
+          keyOptions(key),
         ),
-      quarantineAction: (id, action, body, idempotencyKey) =>
+      quarantineAction: (id, action, body, key) =>
         client.post<AdminRecord, AdminRecord>(
           actionPath("/system/quarantine", id, action),
           body ?? {},
-          keyOptions(idempotencyKey),
+          keyOptions(key),
         ),
     },
   };

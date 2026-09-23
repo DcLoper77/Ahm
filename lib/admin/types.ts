@@ -6,6 +6,7 @@ export type AdminPermission =
   | "admins.read"
   | "admins.invite"
   | "users.read"
+  | "users.tiers.read"
   | "users.suspend"
   | "orgs.read"
   | "orgs.suspend"
@@ -18,14 +19,12 @@ export type AdminPermission =
   | "system.write"
   | "billing.read"
   | "billing.write"
-  | "hosting.read"
-  | "hosting.write"
-  | "domains.read"
-  | "domains.write"
+  | "billing.correction"
   | "databases.read"
   | "databases.write"
-  | "vps.read"
-  | "vps.write"
+  | "tiers.read"
+  | "tiers.write"
+  | "tiers.assign"
   | "analytics.read"
   | "audit.read";
 
@@ -35,6 +34,8 @@ export interface AdminMe {
   id: string;
   email: string;
   roles: AdminRole[];
+  permissions: AdminPermission[];
+  assignable_roles: AdminRole[];
   mfa_enabled: boolean;
   mfa_satisfied: boolean;
   session_id: string;
@@ -126,6 +127,80 @@ export interface CustomerUserDetail {
   organizations: AdminRecord[];
 }
 
+export interface TierRevision {
+  id: string;
+  tier_id: string;
+  tier_key: string;
+  revision: number;
+  state: "DRAFT" | "VALIDATED" | "PUBLISHED" | "RETIRED";
+  validation_sha256: string | null;
+  display_name: string;
+  description: string | null;
+  price_usd_minor: number;
+  price_inr_minor: number;
+  price_kind: "FREE" | "PAID";
+  grant_only: true;
+  duration_days: number;
+  version: number;
+  created_by: string;
+  published_by: string | null;
+  published_at: string | null;
+  created_at: string;
+  updated_at: string;
+  limits: Record<string, number | null>;
+  features: Record<string, boolean>;
+}
+
+export interface CustomTierSummary extends AdminRecord {
+  id: string;
+  revision_id?: string | null;
+  tier_id: string;
+  key: string;
+  name: string;
+  description: string | null;
+  state: "DRAFT" | "VALIDATED" | "ACTIVE" | "ARCHIVED" | "RETIRED";
+  billing_mode: "FREE" | "PAID";
+  price_kind: "FREE" | "PAID";
+  price_usd_minor: number;
+  price_inr_minor: number;
+  grant_only?: true;
+  interval: "GRANT" | "MONTH";
+  default_duration_days: number | null;
+  enforced_limit_keys: string[];
+  unenforced_limit_keys: string[];
+  limits: Record<string, number | null>;
+  features: string[];
+  system: boolean;
+  assignment_count: number;
+  active_assignment_count: number;
+  version: number;
+  revision_version: number | null;
+  created_at: string;
+  updated_at: string;
+  archived_at: string | null;
+}
+
+export interface TierAssignmentSummary extends AdminRecord {
+  id: string;
+  user_id: string;
+  org_id: string;
+  tier_id: string;
+  tier_key: string | null;
+  tier_name: string | null;
+  revision_id: string;
+  source: "ADMIN_GRANT";
+  billing_mode: "NO_CHARGE_GRANT";
+  reason: string;
+  starts_at: string;
+  expires_at: string;
+  revoked_at: string | null;
+  status: "ACTIVE" | "EXPIRED" | "REVOKED";
+  version: number;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export type OrganizationState =
   "ACTIVE" | "PAST_DUE" | "GRACE" | "READ_ONLY" | "SUSPENDED" | "DELETING" | "DELETED";
 
@@ -174,10 +249,6 @@ export interface CatalogueActionResult {
   parity_sha256?: string;
   active_resource_impact?: {
     active_plan_subscriptions: number;
-    active_vps_instances: number;
-    active_vps_items: number;
-    active_services: number;
-    services_over_new_function_limit: number;
   };
   rematerialization_job_id?: string | null;
   runtime_activation?: "ACTIVE" | "PENDING";
@@ -190,6 +261,7 @@ export interface PlanPrice {
 
 export interface PlanLimits {
   storage_bytes: number;
+  backup_manual_retained: number;
   projects: number;
   team_members: number;
   store_per_project: number;
@@ -198,13 +270,9 @@ export interface PlanLimits {
   sql_per_project: number;
   mongo_per_project: number;
   cache_per_project: number;
-  backend_slots: number;
-  web_slots: number;
-  custom_domains: number | null;
-  build_minutes: number | null;
-  bandwidth_bytes: number;
+  quick_databases_total: number;
+  quick_databases_redis: number;
   api_requests_per_min: number;
-  deployment_history: number | null;
 }
 
 export interface PlanDraftItem {
@@ -212,59 +280,24 @@ export interface PlanDraftItem {
   display_name: string;
   price: PlanPrice | null;
   limits: PlanLimits;
-  log_retention_days: number;
   backup_retention_days: number | null;
 }
 
-export interface ServiceDraftItem {
-  service_key: "web" | "backend";
-  service_type: "web" | "backend";
+export interface AddonDraftItem {
+  addon_code: "storage_10gb" | "project_pack_10";
   display_name: string;
-  schema_version: string;
-  hard_ceiling_profile: string;
-  max_functions: number;
-  max_port: number | null;
-  enabled: boolean;
+  price: PlanPrice;
+  available_on: Array<"free" | "developer" | "founder">;
+  entitlement_key: string;
+  entitlement_delta: number;
+  max_units: number;
 }
 
-export interface HostingProject extends AdminRecord {
-  id: string;
-  org_id: string;
-  project_id: string;
-  kind: "web" | "backend";
-  name: string;
-  desired_state: string;
-  desired_version: number;
-  observed_state: string;
-  observed_version: number;
-  sync_state: "PENDING" | "IN_SYNC" | "OUT_OF_SYNC" | "FAILED";
-  route_set_version: number;
-  route_observed_version: number;
-  route_observed_state: "UNKNOWN" | "APPLIED" | "REMOVED" | "ERROR";
-  route_observed_at: string | null;
-  route_sync_state: "PENDING" | "IN_SYNC" | "FAILED";
-  route_sync_error: string | null;
-  version: number;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface CustomDomain extends AdminRecord {
-  id: string;
-  service_id: string;
-  fqdn: string;
-  state: string;
-  verification_method: "dns_txt" | "cname";
-  ownership_state: "PENDING" | "VERIFIED" | "LOST";
-  routing_state: "PENDING" | "VERIFIED" | "LOST" | "REMOVING" | "REMOVED";
-  certificate_state: string;
-  certificate_observed_state: string;
-  certificate_renewal_due_at: string | null;
-  certificate_error_code: string | null;
-  last_error: string | null;
-  version: number;
-  created_at: string;
-  updated_at: string;
+export interface ActiveProductCatalogue {
+  authority: "code" | "database";
+  revision: number | null;
+  plans: PlanDraftItem[];
+  addons: AddonDraftItem[];
 }
 
 export interface AdminRecord {
@@ -307,4 +340,29 @@ export interface MutationInput<TBody = unknown> {
   action?: string;
   step_up_action?: string;
   idempotency_key?: string;
+  money_moving?: boolean;
+}
+
+export interface CustomTierDraftBody {
+  key?: string;
+  name: string;
+  description?: string;
+  billing_mode: "FREE" | "PAID";
+  price_usd_minor?: number;
+  price_inr_minor?: number;
+  interval: "GRANT";
+  default_duration_days: number;
+  limits: Record<string, number | null>;
+  features: string[];
+  expected_version?: number;
+}
+
+export interface TierAssignmentBody {
+  org_id: string;
+  tier_id: string;
+  revision_id?: string;
+  duration_days: number;
+  expected_version: number;
+  replace_active: boolean;
+  reason: string;
 }

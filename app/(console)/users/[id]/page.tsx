@@ -12,14 +12,15 @@ import { ConfirmActionModal } from "@/components/confirm-action";
 import { QueryEmpty, QueryError, QueryLoading } from "@/components/data-states";
 import { AuditRef, RecordFacts, ResourceLink } from "@/components/record-view";
 import { Badge, Button, Card, PageHeader, StatusBadge } from "@/components/ui";
+import { UserTierAssignments } from "@/components/tiers-pages";
 
 export default function UserDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const queryClient = useQueryClient();
   const { admin, runMutation } = useAdminSession();
-  const canRead = hasPermission(admin?.roles ?? [], "users.read");
-  const canMutate = hasPermission(admin?.roles ?? [], "users.suspend");
+  const canRead = hasPermission(admin?.permissions ?? [], "users.read");
+  const canMutate = hasPermission(admin?.permissions ?? [], "users.suspend");
   const query = useAdminQuery(
     ["user", params.id],
     (resourceApi) => resourceApi.users.detail(params.id),
@@ -223,7 +224,7 @@ export default function UserDetailPage() {
             </div>
             <div className="detail-section">
               <p className="security-note">
-                Suspending a customer revokes customer sessions and durably fans out hosting and
+                Suspending a customer revokes customer sessions and durably updates supported
                 database effects. The control panel shows the accepted projection while those
                 effects converge.
               </p>
@@ -257,6 +258,9 @@ export default function UserDetailPage() {
             </div>
           </Card>
         </div>
+      </div>
+      <div className="stack" style={{ marginTop: 18 }}>
+        <UserTierAssignments userId={params.id} organizations={organizations} />
       </div>
       {action ? (
         <ConfirmActionModal

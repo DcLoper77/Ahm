@@ -15,14 +15,21 @@ export default defineConfig({
     baseURL: "http://localhost:3000",
     trace: "on-first-retry",
   },
-  webServer: {
-    command: "npm run dev",
-    url: "http://localhost:3000",
-    reuseExistingServer: false,
-    env: {
-      NEXT_PUBLIC_HAVENERR_ADMIN_API_BASE_URL: "http://localhost:3000",
+  webServer: [
+    {
+      command: "node e2e/admin-api-fixture.mjs",
+      url: "http://127.0.0.1:5000/healthz",
+      reuseExistingServer: false,
     },
-  },
+    {
+      command: "npm run dev",
+      url: "http://localhost:3000",
+      reuseExistingServer: false,
+      env: {
+        HAVENERR_ADMIN_UPSTREAM_ORIGIN: "http://127.0.0.1:5000",
+      },
+    },
+  ],
   projects: [
     { name: "chromium", use: { ...browserProject } },
     {

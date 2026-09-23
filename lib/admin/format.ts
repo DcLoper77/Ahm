@@ -74,7 +74,7 @@ export function safeScalar(value: unknown): string | number | boolean | null {
 }
 
 export function isSensitiveKey(key: string): boolean {
-  return /(password|passphrase|secret|token|credential|private|payload|authorization|connection[_-]?url|dsn|raw|recovery|mfa|totp|otpauth|environment|^env$|provider|gateway|api[_-]?key|access[_-]?key|client[_-]?secret)/i.test(
+  return /(password|passphrase|secret|token|credential|private|payload|authorization|connection[_-]?url|dsn|raw|recovery|mfa|totp|otpauth|environment|^env$|provider|gateway|dunesbit|upstream|worker|agent|node[_-]?id|pool[_-]?id|api[_-]?key|access[_-]?key|client[_-]?secret)/i.test(
     key,
   );
 }

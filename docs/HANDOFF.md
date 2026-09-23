@@ -3,6 +3,70 @@
 Entries are newest first. Backend contract/implementation evidence is maintained in the sibling
 repository `D:\API - Havenerr`; this continuation was explicitly approved to update both repositories.
 
+## 2026-09-24 - Codex - dedicated Admin plane reconciliation
+
+Status: frontend implementation and local verification complete and accepted for backend
+integration. The coordinator handles the requested final commit and push. No deployment, live API
+session, Vercel preview, or production proof is claimed. No backend files were edited from this
+frontend task.
+
+Scope and changed files: updated the same-origin `/admin/v1` rewrite and server-only upstream
+configuration (`next.config.ts`, `.env.example`, `lib/admin/upstream.ts`); reconciled the API client,
+error handling, server-provided permission/grant types, resource clients, and contract tests under
+`lib/admin/**`; updated auth/session, shell, billing, operations, database, feedback, quota, feature,
+catalogue, organization, user, and administrator UI; added Quick Database and custom-tier/assignment
+pages; removed Hosting, Deployments, Domains, VPS/HavenVPS routes and legacy components; added the
+upstream rewrite fixture and desktop/mobile coverage under `e2e/**`; updated `README.md`,
+`docs/DEPLOYMENT.md`, `docs/ADMIN_API_CONTRACT_MATRIX.md`, and `docs/PROGRESS.md`.
+
+Contract and safety decisions: all browser API calls stay on the Control Panel origin and use
+credentialed cookies. Mutations carry the readable CSRF token and a stable idempotency key; manual
+retries after uncertain transport outcomes reuse the same key. Money-moving payment corrections use
+`POST /billing/payments/{id}:correct`, classified correction reasons, fresh step-up, and no automatic
+transport resend. Refund history is read-only; subscription cancellation is period-end only. Plan
+prices live in one immutable `plans` revision with add-ons and use `pcv_...` IDs for detail/diff/
+actions; founder price is read-only, future purchases use the new prices, and purchase-time invoice
+and subscription-item snapshots stay fixed. Custom-tier prices are presentation-only and all grants
+are no-charge. Feature visibility and grant UX consume `/auth/me.permissions` and
+`/auth/me.assignable_roles`. The System page queues only databases, Quick Databases, and billing
+reconcilers with strict empty-object bodies. Active plan schemas/catalogues no longer contain retired
+`hosting.*` limits; historical SQL entitlement/history rows may remain but are ignored by active
+code. The project member permission editor is outside this Admin UI and uses the separate customer
+Control plane contract `{read,create,update,delete,invite,reveal_credentials}` with no `deploy` grant.
+
+Verification commands and results:
+
+- `npm.cmd run typecheck` — passed.
+- `npm.cmd run lint` — passed.
+- `npm.cmd run format:check` — passed.
+- `npm.cmd test` — passed: 8 files, 27 tests.
+- `$env:HAVENERR_ADMIN_UPSTREAM_ORIGIN = 'https://api.havenerr.com'; npm.cmd run build` — passed;
+  Next generated only supported routes.
+- `npm.cmd run test:e2e` — passed: 26 tests across Chromium desktop and mobile.
+- `git diff --check` — passed; Git reported only LF-to-CRLF normalization notices.
+
+The Playwright dashboard desktop and mobile navigation screenshots were saved under ignored
+`test-results/` and visually inspected. The Next.js dev-tools badge in local captures is development
+tooling; it is absent from the production build policy. The development CSP allows React's eval
+instrumentation only in development; production `script-src` remains without `unsafe-eval`.
+
+Failures corrected during verification: local `.next/dev/types/validator.ts` initially retained
+deleted route references, and the first build/typecheck failed on those stale generated types. The
+Next dev server regenerated its route types; subsequent typecheck and production build passed. The
+first Vitest run exposed an omitted query limit in an assertion and fake-timer ordering around the
+Web Crypto key fingerprint; both tests were corrected. Initial Playwright retries exposed an
+ambiguous label selector and missing mobile sign-out access; selectors are scoped and the mobile
+navigation now includes Sign out. Final verification above is green.
+
+Next operational step: deploy the backend and Control Panel to a controlled preview with the
+documented origins, cookie/CORS settings, TLS and proxy behavior; then exercise real admin login,
+MFA, read flows, price-revision publication, billing checkout, and logout before production cutover.
+The backend intentionally records/rate-limits the immediate trusted proxy peer; with Vercel external
+rewrites this means Admin request IP metadata is the Vercel-to-API peer unless authenticated client-IP
+forwarding is added. Verify aggregate IP limits and decide whether per-browser IP attribution is
+required before production. This repository has only local mock-upstream browser proof and makes no
+live API or production claim.
+
 ## 2026-09-08 - Codex - private admin-origin configuration
 
 The frontend no longer declares or reads `NEXT_PUBLIC_HAVENERR_ADMIN_ORIGIN`. Because the

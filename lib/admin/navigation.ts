@@ -40,9 +40,9 @@ export const NAV_SECTIONS: NavSection[] = [
       {
         href: "/users",
         label: "Users",
-        description: "Customer identity and account state",
+        description: "Customer identity, account state, and grants",
         icon: "users",
-        permissions: ["users.read"],
+        permissions: ["users.read", "users.tiers.read"],
       },
       {
         href: "/organizations",
@@ -58,10 +58,17 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       {
         href: "/catalogue",
-        label: "Plans & services",
-        description: "Immutable revisions and parity",
+        label: "Plans & add-ons",
+        description: "Versioned prices and entitlements",
         icon: "layers",
         permissions: ["catalog.read"],
+      },
+      {
+        href: "/tiers",
+        label: "Custom tiers",
+        description: "No-charge, time-bound grants",
+        icon: "layers",
+        permissions: ["tiers.read"],
       },
       {
         href: "/quotas",
@@ -80,42 +87,21 @@ export const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
-    label: "Infrastructure",
+    label: "Data products",
     items: [
       {
-        href: "/hosting",
-        label: "Hosting",
-        description: "Desired, observed, and deployments",
-        icon: "server",
-        permissions: ["hosting.read"],
-      },
-      {
-        href: "/deployments",
-        label: "Deployments",
-        description: "Build and retained-release evidence",
-        icon: "activity",
-        permissions: ["hosting.read"],
-      },
-      {
-        href: "/domains",
-        label: "Domains",
-        description: "Ownership, routing, and certificates",
-        icon: "globe",
-        permissions: ["domains.read"],
-      },
-      {
         href: "/databases",
-        label: "Databases",
+        label: "Project databases",
         description: "Safe connection and failure projections",
         icon: "database",
         permissions: ["databases.read"],
       },
       {
-        href: "/vps",
-        label: "HavenVPS",
-        description: "Instance and AIC observations",
-        icon: "cpu",
-        permissions: ["vps.read"],
+        href: "/quick-databases",
+        label: "Quick Databases",
+        description: "Organization-owned independent databases",
+        icon: "database",
+        permissions: ["databases.read"],
       },
     ],
   },
@@ -138,8 +124,8 @@ export const NAV_SECTIONS: NavSection[] = [
       },
       {
         href: "/billing/payments",
-        label: "Payments & refunds",
-        description: "Attempts, failures, and money movement",
+        label: "Payments & corrections",
+        description: "Attempts, classified corrections, and failures",
         icon: "arrow-up-right",
         permissions: ["billing.read"],
       },

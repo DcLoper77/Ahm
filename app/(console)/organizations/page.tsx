@@ -34,7 +34,7 @@ const emptyFilters = {
 export default function OrganizationsPage() {
   const { admin } = useAdminSession();
   const queryClient = useQueryClient();
-  const canRead = hasPermission(admin?.roles ?? [], "orgs.read");
+  const canRead = hasPermission(admin?.permissions ?? [], "orgs.read");
   const [draftFilters, setDraftFilters] = useState(emptyFilters);
   const [filters, setFilters] = useState(emptyFilters);
   const [cursorStack, setCursorStack] = useState<(string | undefined)[]>([undefined]);

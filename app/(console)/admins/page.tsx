@@ -48,18 +48,18 @@ function configuredAdminOrigin(): string {
 function InviteDialog({
   onClose,
   onCreated,
-  grantorRoles,
+  assignableRoles,
 }: {
   onClose: () => void;
   onCreated: (result: AdminInvitationResult) => void;
-  grantorRoles: AdminRole[];
+  assignableRoles: AdminRole[];
 }) {
   const { runMutation } = useAdminSession();
   const [email, setEmail] = useState("");
   const [selected, setSelected] = useState<AdminRole[]>(["SUPPORT_OPERATOR"]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const grantableRoles = roles.filter((role) => canGrantRole(grantorRoles, role));
+  const grantableRoles = roles.filter((role) => canGrantRole(assignableRoles, role));
   const submit = async () => {
     if (!email || !selected.length) {
       setError("Enter an email address and select at least one role.");
@@ -154,8 +154,8 @@ function InviteDialog({
 export default function AdminsPage() {
   const { admin, runMutation } = useAdminSession();
   const queryClient = useQueryClient();
-  const canRead = hasPermission(admin?.roles ?? [], "admins.read");
-  const canInvite = hasPermission(admin?.roles ?? [], "admins.invite");
+  const canRead = hasPermission(admin?.permissions ?? [], "admins.read");
+  const canInvite = hasPermission(admin?.permissions ?? [], "admins.invite");
   const adminsQuery = useAdminQuery(["admins"], (api) => api.admins.list(), { enabled: canRead });
   const invitationsQuery = useAdminQuery(["invitations"], (api) => api.invitations.list(), {
     enabled: canRead,
@@ -425,7 +425,7 @@ export default function AdminsPage() {
         <InviteDialog
           onClose={() => setInviteOpen(false)}
           onCreated={setInviteResult}
-          grantorRoles={admin?.roles ?? []}
+          assignableRoles={admin?.assignable_roles ?? []}
         />
       ) : null}
       {disableTarget ? (

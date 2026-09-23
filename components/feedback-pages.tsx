@@ -80,7 +80,7 @@ function messagePreview(message: string): string {
 export function FeedbackListPage() {
   const { admin } = useAdminSession();
   const queryClient = useQueryClient();
-  const canRead = hasPermission(admin?.roles ?? [], "analytics.read");
+  const canRead = hasPermission(admin?.permissions ?? [], "analytics.read");
   const [draft, setDraft] = useState<FeedbackFilters>(emptyFilters);
   const [filters, setFilters] = useState<FeedbackFilters>(emptyFilters);
   const [cursorStack, setCursorStack] = useState<(string | undefined)[]>([undefined]);
@@ -299,7 +299,7 @@ export function FeedbackListPage() {
 
 export function FeedbackDetailPage({ id }: { id: string }) {
   const { admin } = useAdminSession();
-  const canRead = hasPermission(admin?.roles ?? [], "analytics.read");
+  const canRead = hasPermission(admin?.permissions ?? [], "analytics.read");
   const query = useAdminQuery(["feedback", id], (api) => api.feedback.detail(id), {
     enabled: canRead,
   });

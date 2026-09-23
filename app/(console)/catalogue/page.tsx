@@ -2,10 +2,6 @@
 
 import { useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import type { ApiResult } from "@/lib/admin/client";
-import { hasPermission } from "@/lib/admin/rbac";
-import { formatDate, humanize, isSensitiveKey, safeScalar } from "@/lib/admin/format";
-import { useAdminQuery } from "@/lib/admin/hooks";
 import { useAdminSession } from "@/components/auth/session-context";
 import { ConfirmActionModal } from "@/components/confirm-action";
 import { QueryEmpty, QueryError, QueryLoading } from "@/components/data-states";
@@ -16,6 +12,7 @@ import {
   Card,
   DataTable,
   Field,
+  InlineAlert,
   Modal,
   ModalForm,
   PageHeader,
@@ -23,18 +20,23 @@ import {
   TableColumn,
   TextInput,
 } from "@/components/ui";
+import { formatDate, formatMoneyMinor } from "@/lib/admin/format";
+import { useAdminQuery } from "@/lib/admin/hooks";
+import { hasPermission } from "@/lib/admin/rbac";
+import type { ApiResult } from "@/lib/admin/client";
 import type {
+  ActiveProductCatalogue,
+  AddonDraftItem,
   AdminRecord,
+  CatalogueActionResult,
   CatalogueRevision,
   PlanDraftItem,
   PlanLimits,
-  ServiceDraftItem,
 } from "@/lib/admin/types";
 
-type CatalogueKind = "plans" | "services" | "vps";
-
-const limitKeys: (keyof PlanLimits)[] = [
+const editableLimitKeys: (keyof PlanLimits)[] = [
   "storage_bytes",
+  "backup_manual_retained",
   "projects",
   "team_members",
   "store_per_project",
@@ -43,150 +45,113 @@ const limitKeys: (keyof PlanLimits)[] = [
   "sql_per_project",
   "mongo_per_project",
   "cache_per_project",
-  "backend_slots",
-  "web_slots",
-  "custom_domains",
-  "build_minutes",
-  "bandwidth_bytes",
+  "quick_databases_total",
+  "quick_databases_redis",
   "api_requests_per_min",
-  "deployment_history",
-];
-const defaultLimits = (): PlanLimits => ({
-  storage_bytes: 0,
-  projects: 0,
-  team_members: 0,
-  store_per_project: 0,
-  kv_per_project: 0,
-  box_per_project: 0,
-  sql_per_project: 0,
-  mongo_per_project: 0,
-  cache_per_project: 0,
-  backend_slots: 0,
-  web_slots: 0,
-  custom_domains: 0,
-  build_minutes: 0,
-  bandwidth_bytes: 0,
-  api_requests_per_min: 0,
-  deployment_history: 0,
-});
-const defaultPlans = (): PlanDraftItem[] =>
-  ["free", "developer", "founder"].map((plan_key) => ({
-    plan_key: plan_key as PlanDraftItem["plan_key"],
-    display_name: plan_key.charAt(0).toUpperCase() + plan_key.slice(1),
-    price: plan_key === "free" ? null : { usd_minor: 0, inr_minor: 0 },
-    limits: defaultLimits(),
-    log_retention_days: 0,
-    backup_retention_days: 0,
-  }));
-const defaultServices = (): ServiceDraftItem[] => [
-  {
-    service_key: "web",
-    service_type: "web",
-    display_name: "Web",
-    schema_version: "1",
-    hard_ceiling_profile: "default",
-    max_functions: 0,
-    max_port: null,
-    enabled: true,
-  },
-  {
-    service_key: "backend",
-    service_type: "backend",
-    display_name: "Backend",
-    schema_version: "1",
-    hard_ceiling_profile: "default",
-    max_functions: 0,
-    max_port: 3000,
-    enabled: true,
-  },
 ];
 
-function DraftDialog({
-  kind,
+const editableLimitLabels: Partial<Record<keyof PlanLimits, string>> = {
+  storage_bytes: "Shared storage (bytes)",
+  backup_manual_retained: "Retained manual backups",
+  projects: "Projects",
+  team_members: "Team members",
+  store_per_project: "HavenStore per project",
+  kv_per_project: "HavenKV per project",
+  box_per_project: "HavenBox buckets per project",
+  sql_per_project: "HavenSQL per project",
+  mongo_per_project: "HavenMongo per project",
+  cache_per_project: "HavenCache per project",
+  quick_databases_total: "Quick Databases per organization",
+  quick_databases_redis: "Redis Quick Databases per organization",
+  api_requests_per_min: "API requests per minute",
+};
+
+function cloneCatalogue(source: ActiveProductCatalogue): {
+  plans: PlanDraftItem[];
+  addons: AddonDraftItem[];
+} {
+  return {
+    plans: source.plans.map((plan) => ({
+      ...plan,
+      price: plan.price ? { ...plan.price } : null,
+      limits: { ...plan.limits },
+    })),
+    addons: source.addons.map((addon) => ({
+      ...addon,
+      price: { ...addon.price },
+      available_on: [...addon.available_on],
+    })),
+  };
+}
+
+function numberValue(value: string): number {
+  return value === "" ? 0 : Number(value);
+}
+
+function ProductPrice({ price }: { price: { usd_minor: number; inr_minor: number } | null }) {
+  if (!price) return <span>Free</span>;
+  return (
+    <span className="price-pair">
+      <strong>{formatMoneyMinor(price.usd_minor, "usd")}</strong>
+      <small>{formatMoneyMinor(price.inr_minor, "inr")}</small>
+    </span>
+  );
+}
+
+function CatalogueDraftDialog({
+  active,
   onClose,
   onCreated,
 }: {
-  kind: CatalogueKind;
+  active: ActiveProductCatalogue;
   onClose: () => void;
   onCreated: () => void;
 }) {
   const { runMutation } = useAdminSession();
-  const [plans, setPlans] = useState(defaultPlans);
-  const [services, setServices] = useState(defaultServices);
-  const [updatedBy, setUpdatedBy] = useState("");
+  const [draft, setDraft] = useState(() => cloneCatalogue(active));
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  const updatePlan = (planIndex: number, update: (plan: PlanDraftItem) => PlanDraftItem) => {
+    setDraft((current) => ({
+      ...current,
+      plans: current.plans.map((plan, index) => (index === planIndex ? update(plan) : plan)),
+    }));
+  };
+
+  const updateAddon = (addonIndex: number, update: (addon: AddonDraftItem) => AddonDraftItem) => {
+    setDraft((current) => ({
+      ...current,
+      addons: current.addons.map((addon, index) => (index === addonIndex ? update(addon) : addon)),
+    }));
+  };
+
   const submit = async () => {
     setError(null);
     setLoading(true);
     try {
-      if (kind === "plans")
-        await runMutation({
-          path: "/plans/versions",
-          body: { plans },
-          step_up_action: "admin:catalogue_draft",
-        });
-      else if (kind === "services")
-        await runMutation({
-          path: "/services/versions",
-          body: { services },
-          step_up_action: "admin:catalogue_draft",
-        });
-      else
-        await runMutation({
-          path: "/vps/versions",
-          body: {
-            catalog_version: 1,
-            updated_at: new Date().toISOString(),
-            updated_by: updatedBy || "Admin operator",
-            defaults: {
-              provider: "AIC",
-              region: "default",
-              currencies: ["INR", "USD"],
-              operating_systems: [{ id: "linux", label: "Linux", default: true }],
-              guards: {
-                min_margin_bp: 0,
-                warn_margin_bp: 0,
-                require_cost: true,
-                forbid_price_below_cost: true,
-                gst_rate_bp: 1800,
-              },
-            },
-            plans: [
-              {
-                sku: "standard",
-                aic_plan_id: "standard",
-                display_name: "Standard",
-                roles: ["dedicated"],
-                visible: true,
-                orderable: false,
-                specs: { vcpu: 1, ram_mb: 1024, disk_gb: 25, bandwidth_gb: 100 },
-                cost: { inr_minor: 0 },
-                price: { inr_minor: 0 },
-              },
-            ],
-            plan_bundles: {
-              free: { hosting_node: null, bundled_vps: [] },
-              developer: { hosting_node: null, bundled_vps: [] },
-              founder: { hosting_node: null, bundled_vps: [] },
-            },
-          },
-          step_up_action: "admin:catalogue_draft",
-        });
+      await runMutation({
+        path: "/plans/versions",
+        body: draft,
+        step_up_action: "admin:catalogue_draft",
+      });
       onCreated();
       onClose();
-    } catch (draftError) {
+    } catch (cause) {
       setError(
-        draftError instanceof Error ? draftError.message : "The typed draft could not be created.",
+        cause instanceof Error
+          ? cause.message
+          : "The billing catalogue draft could not be created.",
       );
     } finally {
       setLoading(false);
     }
   };
+
   return (
     <Modal
-      title={`Create ${kind} draft`}
-      description="This form submits the strict typed catalogue schema. Unverified drafts never become runtime authority."
+      title="Create billing catalogue draft"
+      description="Start from the active server catalogue. A validated publication changes future purchases; existing invoice and subscription-item prices stay fixed."
       onClose={loading ? () => undefined : onClose}
       size="large"
     >
@@ -201,272 +166,224 @@ function DraftDialog({
               Cancel
             </Button>
             <Button type="submit" variant="primary" loading={loading}>
-              Create unverified draft
+              Create draft
             </Button>
           </>
         }
       >
         {error ? (
-          <div className="inline-alert inline-alert-danger" role="alert">
+          <InlineAlert tone="danger" title="Draft not created">
             {error}
-          </div>
+          </InlineAlert>
         ) : null}
-        {kind === "plans" ? (
+
+        <section className="catalogue-editor-section" aria-labelledby="plan-price-heading">
+          <div className="section-heading">
+            <div>
+              <h3 id="plan-price-heading">Managed data plans</h3>
+              <p>
+                Paid prices use integer USD cents and INR paise. Founder price is fixed by the
+                current product contract.
+              </p>
+            </div>
+            <Badge tone="neutral">
+              {active.authority === "database"
+                ? `Active revision ${active.revision ?? "—"}`
+                : "Code catalogue"}
+            </Badge>
+          </div>
           <div className="draft-form-grid">
-            {plans.map((plan, planIndex) => (
-              <div className="draft-group" key={plan.plan_key}>
+            {draft.plans.map((plan, planIndex) => (
+              <Card className="catalogue-product-card" key={plan.plan_key}>
                 <div className="draft-group-heading">
-                  <strong>{plan.plan_key}</strong>
-                  <Badge tone="neutral">Typed plan</Badge>
+                  <div>
+                    <strong>{plan.display_name}</strong>
+                    <small className="mono">{plan.plan_key}</small>
+                  </div>
+                  <ProductPrice price={plan.price} />
                 </div>
                 <Field label="Display name">
                   <TextInput
                     value={plan.display_name}
                     onChange={(event) =>
-                      setPlans((current) =>
-                        current.map((item, index) =>
-                          index === planIndex
-                            ? { ...item, display_name: event.target.value }
-                            : item,
-                        ),
-                      )
+                      updatePlan(planIndex, (current) => ({
+                        ...current,
+                        display_name: event.target.value,
+                      }))
                     }
+                    maxLength={100}
                   />
                 </Field>
                 <div className="two-col-fields">
-                  <Field label="USD minor units">
+                  <Field label="USD cents" hint="Minor units; 700 = $7.00">
                     <TextInput
                       type="number"
-                      min="0"
+                      min="1"
+                      step="1"
                       value={plan.price?.usd_minor ?? 0}
-                      disabled={plan.price === null}
+                      disabled={plan.price === null || plan.plan_key === "founder"}
                       onChange={(event) =>
-                        setPlans((current) =>
-                          current.map((item, index) =>
-                            index === planIndex && item.price
-                              ? {
-                                  ...item,
-                                  price: { ...item.price, usd_minor: Number(event.target.value) },
-                                }
-                              : item,
-                          ),
+                        updatePlan(planIndex, (current) =>
+                          current.price
+                            ? {
+                                ...current,
+                                price: {
+                                  ...current.price,
+                                  usd_minor: numberValue(event.target.value),
+                                },
+                              }
+                            : current,
                         )
                       }
                     />
                   </Field>
-                  <Field label="INR minor units">
+                  <Field label="INR paise" hint="Minor units; 65900 = ₹659.00">
                     <TextInput
                       type="number"
-                      min="0"
+                      min="1"
+                      step="1"
                       value={plan.price?.inr_minor ?? 0}
-                      disabled={plan.price === null}
+                      disabled={plan.price === null || plan.plan_key === "founder"}
                       onChange={(event) =>
-                        setPlans((current) =>
-                          current.map((item, index) =>
-                            index === planIndex && item.price
-                              ? {
-                                  ...item,
-                                  price: { ...item.price, inr_minor: Number(event.target.value) },
-                                }
-                              : item,
-                          ),
+                        updatePlan(planIndex, (current) =>
+                          current.price
+                            ? {
+                                ...current,
+                                price: {
+                                  ...current.price,
+                                  inr_minor: numberValue(event.target.value),
+                                },
+                              }
+                            : current,
                         )
                       }
                     />
                   </Field>
                 </div>
+                {plan.plan_key === "founder" ? (
+                  <p className="security-note">
+                    Founder pricing is fixed at{" "}
+                    {formatMoneyMinor(plan.price?.usd_minor ?? 0, "usd")} /{" "}
+                    {formatMoneyMinor(plan.price?.inr_minor ?? 0, "inr")} by the product design.
+                  </p>
+                ) : null}
                 <div className="two-col-fields">
-                  <Field label="Log retention days">
-                    <TextInput
-                      type="number"
-                      min="0"
-                      max="30"
-                      value={plan.log_retention_days}
-                      onChange={(event) =>
-                        setPlans((current) =>
-                          current.map((item, index) =>
-                            index === planIndex
-                              ? { ...item, log_retention_days: Number(event.target.value) }
-                              : item,
-                          ),
-                        )
-                      }
-                    />
-                  </Field>
-                  <Field label="Backup retention days">
+                  <Field label="Backup retention (days)">
                     <TextInput
                       type="number"
                       min="0"
                       max="30"
                       value={plan.backup_retention_days ?? 0}
                       onChange={(event) =>
-                        setPlans((current) =>
-                          current.map((item, index) =>
-                            index === planIndex
-                              ? { ...item, backup_retention_days: Number(event.target.value) }
-                              : item,
-                          ),
-                        )
+                        updatePlan(planIndex, (current) => ({
+                          ...current,
+                          backup_retention_days: numberValue(event.target.value),
+                        }))
+                      }
+                    />
+                  </Field>
+                  <Field label="Manual backups retained">
+                    <TextInput
+                      type="number"
+                      min="0"
+                      value={plan.limits.backup_manual_retained}
+                      onChange={(event) =>
+                        updatePlan(planIndex, (current) => ({
+                          ...current,
+                          limits: {
+                            ...current.limits,
+                            backup_manual_retained: numberValue(event.target.value),
+                          },
+                        }))
                       }
                     />
                   </Field>
                 </div>
                 <details className="typed-details">
-                  <summary>Plan limits</summary>
+                  <summary>Entitlements and admission limits</summary>
                   <div className="limit-grid">
-                    {limitKeys.map((key) => (
-                      <Field key={key} label={String(key).replaceAll("_", " ")}>
+                    {editableLimitKeys.map((key) => (
+                      <Field key={key} label={editableLimitLabels[key] ?? key}>
                         <TextInput
                           type="number"
-                          min="0"
-                          value={plan.limits[key] ?? 0}
+                          min={key === "quick_databases_total" ? "-1" : "0"}
+                          step="1"
+                          value={plan.limits[key]}
                           onChange={(event) =>
-                            setPlans((current) =>
-                              current.map((item, index) =>
-                                index === planIndex
-                                  ? {
-                                      ...item,
-                                      limits: { ...item.limits, [key]: Number(event.target.value) },
-                                    }
-                                  : item,
-                              ),
-                            )
+                            updatePlan(planIndex, (current) => ({
+                              ...current,
+                              limits: { ...current.limits, [key]: numberValue(event.target.value) },
+                            }))
                           }
                         />
                       </Field>
                     ))}
                   </div>
                 </details>
-              </div>
+              </Card>
             ))}
           </div>
-        ) : kind === "services" ? (
+        </section>
+
+        <section className="catalogue-editor-section" aria-labelledby="addon-price-heading">
+          <div className="section-heading">
+            <div>
+              <h3 id="addon-price-heading">Recurring add-ons</h3>
+              <p>
+                New add-on checkouts use these prices. Existing paid add-on items retain their
+                purchase-time price.
+              </p>
+            </div>
+            <Badge tone="info">Billed with subscription</Badge>
+          </div>
           <div className="draft-form-grid">
-            {services.map((service, index) => (
-              <div className="draft-group" key={service.service_key}>
+            {draft.addons.map((addon, addonIndex) => (
+              <Card className="catalogue-product-card" key={addon.addon_code}>
                 <div className="draft-group-heading">
-                  <strong>{service.service_key}</strong>
-                  <Badge tone={service.enabled ? "success" : "neutral"}>
-                    {service.enabled ? "Enabled" : "Disabled"}
-                  </Badge>
-                </div>
-                <Field label="Display name">
-                  <TextInput
-                    value={service.display_name}
-                    onChange={(event) =>
-                      setServices((current) =>
-                        current.map((item, itemIndex) =>
-                          itemIndex === index
-                            ? { ...item, display_name: event.target.value }
-                            : item,
-                        ),
-                      )
-                    }
-                  />
-                </Field>
-                <div className="two-col-fields">
-                  <Field label="Schema version">
-                    <TextInput
-                      value={service.schema_version}
-                      onChange={(event) =>
-                        setServices((current) =>
-                          current.map((item, itemIndex) =>
-                            itemIndex === index
-                              ? { ...item, schema_version: event.target.value }
-                              : item,
-                          ),
-                        )
-                      }
-                    />
-                  </Field>
-                  <Field label="Ceiling profile">
-                    <TextInput
-                      value={service.hard_ceiling_profile}
-                      onChange={(event) =>
-                        setServices((current) =>
-                          current.map((item, itemIndex) =>
-                            itemIndex === index
-                              ? { ...item, hard_ceiling_profile: event.target.value }
-                              : item,
-                          ),
-                        )
-                      }
-                    />
-                  </Field>
+                  <div>
+                    <strong>{addon.display_name}</strong>
+                    <small className="mono">{addon.addon_code}</small>
+                  </div>
+                  <ProductPrice price={addon.price} />
                 </div>
                 <div className="two-col-fields">
-                  <Field label="Max functions">
+                  <Field label="USD cents" hint="Minor units">
                     <TextInput
                       type="number"
-                      min="0"
-                      max="5"
-                      value={service.max_functions}
+                      min="1"
+                      step="1"
+                      value={addon.price.usd_minor}
                       onChange={(event) =>
-                        setServices((current) =>
-                          current.map((item, itemIndex) =>
-                            itemIndex === index
-                              ? { ...item, max_functions: Number(event.target.value) }
-                              : item,
-                          ),
-                        )
+                        updateAddon(addonIndex, (current) => ({
+                          ...current,
+                          price: { ...current.price, usd_minor: numberValue(event.target.value) },
+                        }))
                       }
                     />
                   </Field>
-                  <Field label="Max port">
+                  <Field label="INR paise" hint="Minor units">
                     <TextInput
                       type="number"
-                      min="1024"
-                      max="65535"
-                      value={service.max_port ?? ""}
+                      min="1"
+                      step="1"
+                      value={addon.price.inr_minor}
                       onChange={(event) =>
-                        setServices((current) =>
-                          current.map((item, itemIndex) =>
-                            itemIndex === index
-                              ? {
-                                  ...item,
-                                  max_port: event.target.value ? Number(event.target.value) : null,
-                                }
-                              : item,
-                          ),
-                        )
+                        updateAddon(addonIndex, (current) => ({
+                          ...current,
+                          price: { ...current.price, inr_minor: numberValue(event.target.value) },
+                        }))
                       }
                     />
                   </Field>
                 </div>
-                <label className="check-field">
-                  <input
-                    type="checkbox"
-                    checked={service.enabled}
-                    onChange={(event) =>
-                      setServices((current) =>
-                        current.map((item, itemIndex) =>
-                          itemIndex === index ? { ...item, enabled: event.target.checked } : item,
-                        ),
-                      )
-                    }
-                  />{" "}
-                  Available for new intent
-                </label>
-              </div>
+                <div className="addon-policy">
+                  <span>Available on {addon.available_on.join(" and ")}</span>
+                  <span>Maximum {addon.max_units} units</span>
+                </div>
+              </Card>
             ))}
           </div>
-        ) : (
-          <>
-            <Field label="Updated by" hint="Recorded in the typed draft metadata.">
-              <TextInput
-                value={updatedBy}
-                onChange={(event) => setUpdatedBy(event.target.value)}
-                placeholder="Admin operator"
-                maxLength={100}
-              />
-            </Field>
-            <p className="security-note">
-              The VPS draft form starts from the strict defaults exposed by the contract. Populate
-              provider-specific values through the typed fields before asking the backend to
-              validate parity.
-            </p>
-          </>
-        )}
+        </section>
       </ModalForm>
     </Modal>
   );
@@ -475,30 +392,31 @@ function DraftDialog({
 export default function CataloguePage() {
   const { admin } = useAdminSession();
   const queryClient = useQueryClient();
-  const [kind, setKind] = useState<CatalogueKind>("plans");
+  const canRead = hasPermission(admin?.permissions ?? [], "catalog.read");
+  const canWrite = hasPermission(admin?.permissions ?? [], "catalog.write");
+  const canPublish = hasPermission(admin?.permissions ?? [], "catalog.publish");
   const [draftOpen, setDraftOpen] = useState(false);
-  const [diffRevision, setDiffRevision] = useState<number | null>(null);
   const [pendingAction, setPendingAction] = useState<{
     action: "validate" | "publish" | "retire";
     revision: CatalogueRevision;
   } | null>(null);
-  const canRead = hasPermission(admin?.roles ?? [], "catalog.read");
-  const canWrite = hasPermission(admin?.roles ?? [], "catalog.write");
-  const canPublish = hasPermission(admin?.roles ?? [], "catalog.publish");
-  const query = useAdminQuery(["catalogue", kind], (api) => api.catalogue.revisions(kind), {
+  const [diffRevisionId, setDiffRevisionId] = useState<string | null>(null);
+  const [viewRevisionId, setViewRevisionId] = useState<string | null>(null);
+  const [notice, setNotice] = useState<{
+    message: string;
+    requestId?: string;
+    warning?: boolean;
+  } | null>(null);
+  const query = useAdminQuery(["catalogue", "plans"], (api) => api.catalogue.revisions(), {
     enabled: canRead,
   });
-  const activeServiceQuery = useAdminQuery(
-    ["catalogue", "active-services"],
-    (api) => api.catalogue.activeServices(),
-    { enabled: canRead && kind === "services" },
-  );
   const diffQuery = useAdminQuery(
-    ["catalogue", kind, "diff", diffRevision],
-    (api) => api.catalogue.diff(kind, diffRevision ?? 0),
-    { enabled: canRead && diffRevision !== null },
+    ["catalogue", "plans", "diff", diffRevisionId],
+    (api) => api.catalogue.diff(diffRevisionId ?? ""),
+    { enabled: canRead && diffRevisionId !== null },
   );
   const revisions = query.data?.data.revisions ?? [];
+  const activeCatalogue = query.data?.data.active_catalogue;
   const columns = useMemo<TableColumn<CatalogueRevision>[]>(
     () => [
       {
@@ -509,7 +427,7 @@ export default function CataloguePage() {
             <span className="row-avatar">{revision.revision}</span>
             <span className="primary-cell-copy">
               <strong>Revision {revision.revision}</strong>
-              <small>{revision.id}</small>
+              <small className="mono">{revision.id}</small>
             </span>
           </span>
         ),
@@ -521,7 +439,7 @@ export default function CataloguePage() {
       },
       {
         key: "parity",
-        label: "Parity",
+        label: "Validation",
         render: (revision) => <StatusBadge value={revision.parity_state} />,
       },
       {
@@ -536,8 +454,11 @@ export default function CataloguePage() {
         align: "right",
         render: (revision) => (
           <div className="action-row table-action-row">
-            <Button variant="quiet" onClick={() => setDiffRevision(revision.revision)}>
+            <Button variant="quiet" onClick={() => setDiffRevisionId(revision.id)}>
               View diff
+            </Button>
+            <Button variant="quiet" onClick={() => setViewRevisionId(revision.id)}>
+              View definition
             </Button>
             {revision.state === "DRAFT" && canWrite ? (
               <Button
@@ -547,7 +468,7 @@ export default function CataloguePage() {
                 Validate
               </Button>
             ) : null}
-            {revision.state === "DRAFT" && canPublish ? (
+            {revision.state === "DRAFT" && canPublish && revision.parity_state === "VERIFIED" ? (
               <Button
                 variant="primary"
                 onClick={() => setPendingAction({ action: "publish", revision })}
@@ -555,12 +476,12 @@ export default function CataloguePage() {
                 Publish
               </Button>
             ) : null}
-            {revision.state === "PUBLISHED" && canPublish ? (
+            {revision.state === "DRAFT" && canWrite ? (
               <Button
                 variant="danger-quiet"
                 onClick={() => setPendingAction({ action: "retire", revision })}
               >
-                Retire
+                Retire draft
               </Button>
             ) : null}
           </div>
@@ -569,153 +490,195 @@ export default function CataloguePage() {
     ],
     [canPublish, canWrite],
   );
-  if (!canRead)
+
+  if (!canRead) {
     return (
       <>
         <PageHeader
           eyebrow="Catalogue"
-          title="Plans & services"
+          title="Plans & add-ons"
           description="Catalogue access is not included in your current role."
         />
         <QueryEmpty
           title="Permission required"
-          description="Ask a platform administrator for catalog.read to inspect revisions."
+          description="Ask for catalog.read to inspect product prices and entitlements."
         />
       </>
     );
+  }
+
   return (
     <>
       <PageHeader
         eyebrow="Catalogue"
-        title="Plans & services"
-        description="Typed, immutable revisions with parity state, version guards, and explicit publication evidence."
+        title="Plans & add-ons"
+        description="Versioned product prices and limits. Publishing affects new purchases; existing subscription items and invoices keep their purchase-time snapshots."
         actions={
           <>
             <Button
               variant="secondary"
               icon="refresh"
-              onClick={() => void queryClient.invalidateQueries({ queryKey: ["catalogue", kind] })}
+              onClick={() => void queryClient.invalidateQueries({ queryKey: ["catalogue"] })}
               loading={query.isFetching}
             >
               Refresh
             </Button>
             {canWrite ? (
-              <Button variant="primary" icon="plus" onClick={() => setDraftOpen(true)}>
-                Create typed draft
+              <Button
+                variant="primary"
+                icon="plus"
+                onClick={() => setDraftOpen(true)}
+                disabled={!activeCatalogue}
+              >
+                Create draft from active catalogue
               </Button>
             ) : null}
           </>
         }
       />
-      <div className="tabs">
-        {(["plans", "services", "vps"] as CatalogueKind[]).map((item) => (
-          <button
-            key={item}
-            className={`tab ${kind === item ? "is-active" : ""}`}
-            onClick={() => setKind(item)}
-          >
-            {item === "plans" ? "Plans" : item === "services" ? "Hosting services" : "HavenVPS"}
-          </button>
-        ))}
-      </div>
-      <Card>
-        <div className="card-heading">
-          <div>
-            <h2>
-              {kind === "plans"
-                ? "Plan revisions"
-                : kind === "services"
-                  ? "Service revisions"
-                  : "VPS catalogue revisions"}
-            </h2>
-            <p>
-              Unverified drafts stay outside runtime authority until validation, parity, and guarded
-              publication succeed.
-            </p>
-          </div>
-          <Badge tone="info" icon="layers">
-            Immutable revisions
-          </Badge>
-        </div>
-        {query.isLoading ? (
-          <QueryLoading label="Loading catalogue revisions…" />
-        ) : query.error ? (
-          <QueryError error={query.error} onRetry={() => void query.refetch()} />
-        ) : revisions.length ? (
-          <DataTable
-            caption={`${kind} catalogue revisions`}
-            rows={revisions}
-            rowKey={(revision) => revision.id}
-            columns={columns}
-          />
-        ) : (
-          <QueryEmpty
-            title="No revisions reported"
-            description="The admin API returned no catalogue revisions for this family."
-          />
-        )}
-      </Card>
-      <div className="catalogue-note">
-        <Badge tone="warning" icon="shield">
-          Publication guard
-        </Badge>
-        <span>
-          {canPublish
-            ? "Your role may publish after fresh MFA and validation."
-            : "Publication and retirement are root protected by the final permission model."}
-        </span>
-      </div>
-      {kind === "services" ? (
-        <Card className="active-catalogue-card">
-          <div className="card-heading">
-            <div>
-              <h2>Active service catalogue</h2>
-              <p>Runtime authority is read from the dedicated active catalogue projection.</p>
-            </div>
-            <Badge tone="success" icon="check-circle">
-              Active view
-            </Badge>
-          </div>
-          {activeServiceQuery.isLoading ? (
-            <QueryLoading label="Loading active catalogue…" />
-          ) : activeServiceQuery.error ? (
-            <QueryError
-              error={activeServiceQuery.error}
-              onRetry={() => void activeServiceQuery.refetch()}
-            />
-          ) : activeServiceQuery.data?.data ? (
-            <SafeRecordSummary record={activeServiceQuery.data.data} />
-          ) : (
-            <QueryEmpty
-              title="No active catalogue reported"
-              description="The admin API did not return the active service catalogue."
-            />
-          )}
-        </Card>
+      {notice ? (
+        <InlineAlert
+          tone={notice.warning ? "warning" : "success"}
+          title={notice.warning ? "Publication queued" : "Catalogue updated"}
+          onDismiss={() => setNotice(null)}
+        >
+          {notice.message}
+          {notice.requestId ? (
+            <span className="notice-request">Request {notice.requestId}</span>
+          ) : null}
+        </InlineAlert>
       ) : null}
-      {draftOpen ? (
-        <DraftDialog
-          kind={kind}
+      {query.isLoading ? (
+        <QueryLoading label="Loading active catalogue and revisions…" />
+      ) : query.error ? (
+        <QueryError error={query.error} onRetry={() => void query.refetch()} />
+      ) : null}
+      {activeCatalogue && !query.error ? (
+        <>
+          <Card>
+            <div className="card-heading">
+              <div>
+                <h2>Effective prices</h2>
+                <p>
+                  Source:{" "}
+                  {activeCatalogue.authority === "database"
+                    ? `published revision ${activeCatalogue.revision ?? "—"}`
+                    : "code catalogue"}
+                </p>
+              </div>
+              <Badge tone={activeCatalogue.authority === "database" ? "success" : "neutral"}>
+                {activeCatalogue.authority === "database" ? "Database authority" : "Code authority"}
+              </Badge>
+            </div>
+            <DataTable
+              caption="Current product prices"
+              rows={[
+                ...activeCatalogue.plans.map((plan) => ({
+                  id: plan.plan_key,
+                  product: plan.display_name,
+                  family: "Plan",
+                  price: plan.price,
+                  policy:
+                    plan.plan_key === "founder"
+                      ? "Fixed by product design"
+                      : plan.plan_key === "free"
+                        ? "No charge"
+                        : "New subscriptions and upgrades",
+                })),
+                ...activeCatalogue.addons.map((addon) => ({
+                  id: addon.addon_code,
+                  product: addon.display_name,
+                  family: "Recurring add-on",
+                  price: addon.price,
+                  policy: "New purchases; current items keep their price",
+                })),
+              ]}
+              rowKey={(row) => row.id}
+              columns={[
+                {
+                  key: "product",
+                  label: "Product",
+                  render: (row) => <strong>{row.product}</strong>,
+                },
+                {
+                  key: "family",
+                  label: "Type",
+                  render: (row) => <Badge tone="neutral">{row.family}</Badge>,
+                },
+                {
+                  key: "price",
+                  label: "USD / INR monthly",
+                  render: (row) => <ProductPrice price={row.price} />,
+                },
+                { key: "policy", label: "Effective for", render: (row) => row.policy },
+              ]}
+            />
+          </Card>
+          <Card>
+            <div className="card-heading">
+              <div>
+                <h2>Revision history</h2>
+                <p>
+                  Drafts must validate and pass server parity checks before guarded publication.
+                </p>
+              </div>
+              <Badge tone="info" icon="layers">
+                Immutable revisions
+              </Badge>
+            </div>
+            {revisions.length ? (
+              <DataTable
+                caption="Billing catalogue revisions"
+                rows={revisions}
+                rowKey={(revision) => revision.id}
+                columns={columns}
+              />
+            ) : (
+              <QueryEmpty
+                title="No catalogue revisions"
+                description="The active code catalogue remains available. Create a draft from it to start a reviewed price change."
+              />
+            )}
+          </Card>
+        </>
+      ) : null}
+      {draftOpen && activeCatalogue ? (
+        <CatalogueDraftDialog
+          active={activeCatalogue}
           onClose={() => setDraftOpen(false)}
-          onCreated={() => void queryClient.invalidateQueries({ queryKey: ["catalogue", kind] })}
+          onCreated={() => void queryClient.invalidateQueries({ queryKey: ["catalogue"] })}
         />
       ) : null}
       {pendingAction ? (
         <CatalogueActionDialog
-          kind={kind}
           pendingAction={pendingAction}
           onClose={() => setPendingAction(null)}
-          onCompleted={() => {
+          onCompleted={(result) => {
             setPendingAction(null);
-            void queryClient.invalidateQueries({ queryKey: ["catalogue", kind] });
+            void queryClient.invalidateQueries({ queryKey: ["catalogue"] });
+            if (result)
+              setNotice({
+                message:
+                  result.runtime_activation === "PENDING"
+                    ? "The validated revision is published. Runtime activation is pending; the current price remains visible until the committed catalogue reload completes."
+                    : "The catalogue revision completed its guarded action.",
+                requestId: result.request_id,
+                warning: result.runtime_activation === "PENDING",
+              });
           }}
         />
       ) : null}
-      {diffRevision !== null ? (
+      {diffRevisionId ? (
         <DiffDialog
-          revision={diffRevision}
+          revisionId={diffRevisionId}
           query={diffQuery}
-          onClose={() => setDiffRevision(null)}
+          onClose={() => setDiffRevisionId(null)}
+        />
+      ) : null}
+      {viewRevisionId ? (
+        <RevisionDefinitionDialog
+          revisionId={viewRevisionId}
+          onClose={() => setViewRevisionId(null)}
         />
       ) : null}
     </>
@@ -723,18 +686,18 @@ export default function CataloguePage() {
 }
 
 function DiffDialog({
-  revision,
+  revisionId,
   query,
   onClose,
 }: {
-  revision: number;
+  revisionId: string;
   query: ReturnType<typeof useAdminQuery<ApiResult<AdminRecord>>>;
   onClose: () => void;
 }) {
   return (
     <Modal
-      title={`Revision ${revision} diff`}
-      description="The comparison is read-only and redacts secret-adjacent keys from the rendered view."
+      title="Billing catalogue diff"
+      description={`Revision ${revisionId}; historical and current prices are shown in minor units.`}
       onClose={onClose}
       size="large"
     >
@@ -743,16 +706,16 @@ function DiffDialog({
           <QueryLoading label="Loading revision diff…" />
         ) : query.error ? (
           <QueryError error={query.error} onRetry={() => void query.refetch()} />
-        ) : query.data?.data ? (
-          <SafeDiff value={query.data.data} />
+        ) : query.data ? (
+          <SafeRecordSummary record={query.data.data} />
         ) : (
           <QueryEmpty
-            title="No diff reported"
-            description="The admin API returned no diff payload for this revision."
+            title="No diff returned"
+            description="The backend did not return a diff for this revision."
           />
         )}
       </div>
-      <div className="modal-footer">
+      <div className="modal-actions">
         <Button variant="secondary" onClick={onClose}>
           Close
         </Button>
@@ -761,72 +724,146 @@ function DiffDialog({
   );
 }
 
-function SafeDiff({ value, path = "root" }: { value: unknown; path?: string }): React.ReactNode {
-  if (Array.isArray(value)) {
-    return (
-      <div className="safe-diff-node">
-        <span className="safe-diff-label">{humanize(path)}</span>
-        <strong>{value.length} items</strong>
-        {value.slice(0, 8).map((item, index) => (
-          <div className="safe-diff-child" key={`${path}-${index}`}>
-            {SafeDiff({ value: item, path: `${path}.${index + 1}` })}
-          </div>
-        ))}
-      </div>
-    );
-  }
-  if (value && typeof value === "object") {
-    return (
-      <div className="safe-diff-node">
-        {Object.entries(value as Record<string, unknown>)
-          .filter(([key]) => !isSensitiveKey(key))
-          .slice(0, 30)
-          .map(([key, child]) => (
-            <div className="safe-diff-child" key={`${path}-${key}`}>
-              {SafeDiff({ value: child, path: key })}
-            </div>
-          ))}
-      </div>
-    );
-  }
-  const scalar = safeScalar(value);
+function RevisionDefinitionDialog({
+  revisionId,
+  onClose,
+}: {
+  revisionId: string;
+  onClose: () => void;
+}) {
+  const query = useAdminQuery(["catalogue", "plans", "revision", revisionId], (api) =>
+    api.catalogue.revision(revisionId),
+  );
+  const definition = query.data?.data.definition;
   return (
-    <div className="safe-diff-row">
-      <span>{humanize(path)}</span>
-      <strong>{scalar === null ? "Not reported" : String(scalar)}</strong>
-    </div>
+    <Modal
+      title="Plan catalogue definition"
+      description={`Immutable revision ${revisionId}.`}
+      onClose={onClose}
+      size="large"
+    >
+      <div className="modal-body">
+        {query.isLoading ? (
+          <QueryLoading label="Loading revision definition…" />
+        ) : query.error ? (
+          <QueryError error={query.error} onRetry={() => void query.refetch()} />
+        ) : definition ? (
+          <div className="stack">
+            <DataTable
+              caption="Plan prices in revision"
+              rows={definition.plans}
+              rowKey={(plan) => plan.plan_key}
+              columns={[
+                {
+                  key: "plan",
+                  label: "Plan",
+                  render: (plan) => (
+                    <>
+                      <strong>{plan.display_name}</strong>
+                      <small className="mono">{plan.plan_key}</small>
+                    </>
+                  ),
+                },
+                {
+                  key: "price",
+                  label: "USD / INR",
+                  render: (plan) => <ProductPrice price={plan.price} />,
+                },
+                {
+                  key: "backup",
+                  label: "Backup retention",
+                  render: (plan) =>
+                    plan.backup_retention_days === null
+                      ? "Not included"
+                      : `${plan.backup_retention_days} days`,
+                },
+              ]}
+            />
+            <DataTable
+              caption="Add-on prices in revision"
+              rows={definition.addons}
+              rowKey={(addon) => addon.addon_code}
+              columns={[
+                {
+                  key: "addon",
+                  label: "Add-on",
+                  render: (addon) => (
+                    <>
+                      <strong>{addon.display_name}</strong>
+                      <small className="mono">{addon.addon_code}</small>
+                    </>
+                  ),
+                },
+                {
+                  key: "price",
+                  label: "USD / INR",
+                  render: (addon) => <ProductPrice price={addon.price} />,
+                },
+                {
+                  key: "availability",
+                  label: "Available on",
+                  render: (addon) => addon.available_on.join(", "),
+                },
+              ]}
+            />
+            <p className="security-note">
+              Add-on names, availability, and entitlement rules remain code-owned. These prices
+              apply to future purchases only.
+            </p>
+          </div>
+        ) : (
+          <QueryEmpty
+            title="No definition returned"
+            description="The revision detail route returned no product definition."
+          />
+        )}
+      </div>
+      <div className="modal-actions">
+        <Button variant="secondary" onClick={onClose}>
+          Close
+        </Button>
+      </div>
+    </Modal>
   );
 }
 
 function CatalogueActionDialog({
-  kind,
   pendingAction,
   onClose,
   onCompleted,
 }: {
-  kind: CatalogueKind;
   pendingAction: { action: "validate" | "publish" | "retire"; revision: CatalogueRevision };
   onClose: () => void;
-  onCompleted: () => void;
+  onCompleted: (result?: {
+    runtime_activation?: "ACTIVE" | "PENDING";
+    request_id?: string;
+  }) => void;
 }) {
   const { runMutation } = useAdminSession();
-  const submit = async (input: { expected_version?: number; reason?: string }) => {
-    await runMutation({
-      path: `/${kind}/versions/${pendingAction.revision.revision}:${pendingAction.action}`,
+  const submit = async (input: { expected_version?: number }) => {
+    const response = await runMutation<CatalogueActionResult>({
+      path: `/plans/versions/${encodeURIComponent(pendingAction.revision.id)}:${pendingAction.action}`,
       body: { expected_version: input.expected_version ?? pendingAction.revision.version },
       step_up_action: `admin:catalogue_${pendingAction.action}`,
     });
-    onCompleted();
+    onCompleted({
+      runtime_activation: response.data.runtime_activation,
+      request_id: response.request_id,
+    });
   };
   return (
     <ConfirmActionModal
-      title={`${pendingAction.action.charAt(0).toUpperCase() + pendingAction.action.slice(1)} catalogue revision`}
-      target={`${kind} revision ${pendingAction.revision.revision}`}
-      description="The backend checks parity, version, role, and fresh MFA before changing catalogue authority."
+      title={`${pendingAction.action.charAt(0).toUpperCase() + pendingAction.action.slice(1)} billing catalogue revision`}
+      target={`Revision ${pendingAction.revision.revision} (${pendingAction.revision.id})`}
+      description={
+        pendingAction.action === "publish"
+          ? "The backend rechecks the complete plan/add-on catalogue, version, role, and fresh MFA. Existing billing snapshots are not repriced."
+          : "The backend checks parity, version, role, and fresh MFA before changing catalogue state."
+      }
       actionLabel={pendingAction.action}
       expectedVersion={pendingAction.revision.version}
       reasonRequired={false}
-      dangerous={pendingAction.action === "retire" || pendingAction.action === "publish"}
+      dangerous={pendingAction.action !== "validate"}
       onConfirm={submit}
       onClose={onClose}
     />

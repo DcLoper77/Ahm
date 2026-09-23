@@ -29,8 +29,8 @@ function featureRows(data: AdminRecord | undefined): AdminRecord[] {
 export default function FeaturesPage() {
   const { admin, runMutation } = useAdminSession();
   const queryClient = useQueryClient();
-  const canRead = hasPermission(admin?.roles ?? [], "catalog.read");
-  const canWrite = hasPermission(admin?.roles ?? [], "catalog.write");
+  const canRead = hasPermission(admin?.permissions ?? [], "catalog.read");
+  const canWrite = hasPermission(admin?.permissions ?? [], "catalog.write");
   const query = useAdminQuery(["features"], (api) => api.catalogue.features(), {
     enabled: canRead,
   });
@@ -136,9 +136,7 @@ export default function FeaturesPage() {
         <div className="card-heading">
           <div>
             <h2>Global product features</h2>
-            <p>
-              Disabling hosting blocks new hosting intent without deleting existing workload rows.
-            </p>
+            <p>Identity sign-in options are changed through the versioned feature registry.</p>
           </div>
           <Badge tone="warning" icon="shield">
             Step-up protected

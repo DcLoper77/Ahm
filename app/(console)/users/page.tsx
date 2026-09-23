@@ -31,7 +31,7 @@ export default function UsersPage() {
   const [filters, setFilters] = useState(emptyFilters);
   const [cursorStack, setCursorStack] = useState<(string | undefined)[]>([undefined]);
   const cursor = cursorStack[cursorStack.length - 1];
-  const canRead = hasPermission(admin?.roles ?? [], "users.read");
+  const canRead = hasPermission(admin?.permissions ?? [], "users.read");
   const query = useAdminQuery(
     ["users", filters, cursor],
     (resourceApi) => resourceApi.users.list({ ...filters, cursor, limit: 25 }),

@@ -12,7 +12,7 @@ import { Badge, Button, Card, Field, InlineAlert, PageHeader, TextInput } from "
 
 export default function SecurityPage() {
   const router = useRouter();
-  const { admin, api, signOut, refreshSession, refreshMe, sessionIdleExpiresAt, runMutation } =
+  const { admin, signOut, refreshSession, refreshMe, sessionIdleExpiresAt, runMutation } =
     useAdminSession();
   const queryClient = useQueryClient();
   const sessionsQuery = useAdminQuery(["auth", "sessions"], (authApi) => authApi.sessions(), {
@@ -32,7 +32,11 @@ export default function SecurityPage() {
     setError(null);
     setLoading(true);
     try {
-      const result = await api.rotateRecoveryCodes(recoveryCode);
+      const result = await runMutation<{ recovery_codes: string[] }>({
+        path: "/auth/mfa/recovery-codes/rotate",
+        body: { code: recoveryCode },
+        step_up_action: "admin:recovery_codes_rotate",
+      });
       setRecoveryCodes(result.data.recovery_codes);
       setRecoveryCode("");
     } catch (rotateError) {
@@ -80,7 +84,10 @@ export default function SecurityPage() {
   const revokeAll = async () => {
     setLoading(true);
     try {
-      await api.revokeAll();
+      await runMutation<{ revoked: number }>({
+        path: "/auth/sessions/revoke-all",
+        body: {},
+      });
       await signOut();
     } catch {
       await signOut();

@@ -237,6 +237,9 @@ button:disabled {
   padding: 13px 8px 0;
   border-top: 1px solid var(--line);
 }
+.sidebar-signout {
+  display: none;
+}
 .security-status {
   display: flex;
   align-items: flex-start;
@@ -1769,6 +1772,9 @@ a.stat-card:hover {
     width: min(285px, calc(100vw - 50px));
     transform: translateX(-102%);
     transition: transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+    background: var(--canvas);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
     box-shadow: var(--shadow-float);
   }
   .sidebar.is-open {
@@ -1808,6 +1814,12 @@ a.stat-card:hover {
   .identity-menu > svg,
   .logout-button {
     display: none;
+  }
+  .sidebar-signout {
+    display: flex;
+    width: 100%;
+    justify-content: flex-start;
+    margin-top: 8px;
   }
   .identity-avatar {
     width: 29px;
@@ -2219,25 +2231,6 @@ a.stat-card:hover {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.worker-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 13px;
-  padding: 0 23px 23px;
-}
-.worker-card {
-  border: 1px solid var(--line);
-  border-radius: 13px;
-}
-.worker-card .card-heading {
-  padding: 16px 16px 13px;
-}
-.worker-card .detail-section {
-  padding: 0 16px 14px;
-}
-.worker-card .detail-row {
-  padding: 8px 0;
-}
 .catalogue-note {
   display: flex;
   align-items: center;
@@ -2452,8 +2445,7 @@ a.stat-card:hover {
 }
 
 @media (max-width: 700px) {
-  .draft-form-grid,
-  .worker-grid {
+  .draft-form-grid {
     grid-template-columns: 1fr;
   }
   .two-col-fields {

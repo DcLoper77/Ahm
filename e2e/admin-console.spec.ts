@@ -23,7 +23,7 @@ function errorEnvelope(code: string, retryable = false, details?: unknown) {
 async function mockAdminApi(
   page: Page,
   role: Role = "ROOT",
-  options: { stepUp?: boolean; longFeedback?: boolean } = {},
+  options: { stepUp?: boolean; longFeedback?: boolean; paymentCorrectionUncertain?: boolean } = {},
 ) {
   const state = {
     authenticated: false,
@@ -32,6 +32,17 @@ async function mockAdminApi(
     expireUsers: false,
     mutationHeaders: [] as Record<string, string>[],
     feedbackRequests: [] as string[],
+    correctionFailureUsed: false,
+    paymentCorrectionRequests: [] as {
+      path: string;
+      body: Record<string, unknown>;
+      headers: Record<string, string>;
+    }[],
+    tierAssignments: [] as Record<string, unknown>[],
+    tierAssignmentRequests: [] as {
+      body: Record<string, unknown>;
+      headers: Record<string, string>;
+    }[],
   };
   const feedbackMessage = options.longFeedback
     ? `<script>not executable</script>${"x".repeat(1940)}`
@@ -68,6 +79,21 @@ async function mockAdminApi(
           id: "adm_e2e",
           email: "operator@example.com",
           roles: [role],
+          permissions:
+            role === "ROOT"
+              ? ["*"]
+              : ["analytics.read", "audit.read", "catalog.read", "tiers.read"],
+          assignable_roles:
+            role === "ROOT"
+              ? [
+                  "ROOT",
+                  "PLATFORM_ADMIN",
+                  "SUPPORT_OPERATOR",
+                  "BILLING_ADMIN",
+                  "INFRA_ADMIN",
+                  "ANALYST",
+                ]
+              : [],
           mfa_enabled: true,
           mfa_satisfied: true,
           session_id: "ase_e2e",
@@ -100,7 +126,8 @@ async function mockAdminApi(
         envelope({
           status: "READY",
           dependencies: "healthy",
-          workers: "healthy",
+          databases: "healthy",
+          quick_databases: "healthy",
           queue: "healthy",
           audit_chain: "healthy",
         }),
@@ -138,9 +165,200 @@ async function mockAdminApi(
         }),
       );
     }
+    if (path === "/admin/v1/users/usr_e2e" && method === "GET") {
+      return fulfill(
+        200,
+        envelope({
+          user: {
+            id: "usr_e2e",
+            email: "customer@example.com",
+            status: "ACTIVE",
+            version: 1,
+            created_at: "2026-09-08T12:00:00.000Z",
+          },
+          organizations: [
+            {
+              id: "org_e2e",
+              name: "Customer workspace",
+              role: "OWNER",
+              state: "ACTIVE",
+              plan_code: "free",
+            },
+          ],
+        }),
+      );
+    }
+    if (path === "/admin/v1/users/usr_e2e/tier-assignments" && method === "GET") {
+      return fulfill(200, envelope({ assignments: state.tierAssignments }));
+    }
+    if (path === "/admin/v1/users/usr_e2e/tier-assignments" && method === "POST") {
+      const body = JSON.parse(request.postData() ?? "{}") as Record<string, unknown>;
+      state.tierAssignmentRequests.push({ body, headers });
+      const assignment = {
+        id: "cta_e2e",
+        user_id: "usr_e2e",
+        org_id: "org_e2e",
+        tier_id: "cti_e2e",
+        tier_key: "priority_support",
+        tier_name: "Priority support",
+        revision_id: "ctr_e2e",
+        source: "ADMIN_GRANT",
+        billing_mode: "NO_CHARGE_GRANT",
+        reason: body.reason,
+        starts_at: "2026-09-24T10:00:00.000Z",
+        expires_at: "2026-10-24T10:00:00.000Z",
+        revoked_at: null,
+        status: "ACTIVE",
+        version: 1,
+        created_by: "adm_e2e",
+        created_at: "2026-09-24T10:00:00.000Z",
+        updated_at: "2026-09-24T10:00:00.000Z",
+      };
+      state.tierAssignments = [assignment];
+      return fulfill(
+        200,
+        envelope({
+          assignment,
+          tier: { id: "ctr_e2e", tier_key: "priority_support", revision: 1 },
+        }),
+      );
+    }
+    if (path === "/admin/v1/tiers" && method === "GET") {
+      return fulfill(
+        200,
+        envelope({
+          tiers: [
+            {
+              id: "cti_e2e",
+              revision_id: "ctr_e2e",
+              tier_id: "cti_e2e",
+              key: "priority_support",
+              name: "Priority support",
+              description: "Support grant",
+              state: "ACTIVE",
+              billing_mode: "FREE",
+              price_kind: "FREE",
+              price_usd_minor: 0,
+              price_inr_minor: 0,
+              interval: "GRANT",
+              default_duration_days: 30,
+              enforced_limit_keys: [],
+              unenforced_limit_keys: [],
+              limits: {},
+              features: [],
+              system: false,
+              assignment_count: 0,
+              active_assignment_count: 0,
+              version: 1,
+              revision_version: 1,
+              created_at: "2026-09-01T00:00:00.000Z",
+              updated_at: "2026-09-01T00:00:00.000Z",
+              archived_at: null,
+            },
+          ],
+          next_cursor: null,
+        }),
+      );
+    }
+    if (path === "/admin/v1/tiers/cti_e2e" && method === "GET") {
+      return fulfill(
+        200,
+        envelope({
+          tier: {
+            id: "cti_e2e",
+            revision_id: "ctr_e2e",
+            tier_id: "cti_e2e",
+            key: "priority_support",
+            name: "Priority support",
+            description: "Support grant",
+            state: "ACTIVE",
+            billing_mode: "FREE",
+            price_kind: "FREE",
+            price_usd_minor: 0,
+            price_inr_minor: 0,
+            interval: "GRANT",
+            default_duration_days: 30,
+            enforced_limit_keys: [],
+            unenforced_limit_keys: [],
+            limits: {},
+            features: [],
+            system: false,
+            assignment_count: 0,
+            active_assignment_count: 0,
+            version: 1,
+            revision_version: 1,
+            created_at: "2026-09-01T00:00:00.000Z",
+            updated_at: "2026-09-01T00:00:00.000Z",
+            archived_at: null,
+          },
+          revisions: [
+            {
+              id: "ctr_e2e",
+              tier_id: "cti_e2e",
+              tier_key: "priority_support",
+              revision: 1,
+              state: "PUBLISHED",
+              validation_sha256: "sha256",
+              display_name: "Priority support",
+              description: "Support grant",
+              price_usd_minor: 0,
+              price_inr_minor: 0,
+              price_kind: "FREE",
+              grant_only: true,
+              duration_days: 30,
+              version: 1,
+              created_by: "adm_e2e",
+              published_by: "adm_e2e",
+              published_at: "2026-09-01T00:00:00.000Z",
+              created_at: "2026-09-01T00:00:00.000Z",
+              updated_at: "2026-09-01T00:00:00.000Z",
+              limits: {},
+              features: {},
+            },
+          ],
+          assignments: [],
+        }),
+      );
+    }
+    if (path === "/admin/v1/billing/payments/pay_e2e" && method === "GET") {
+      return fulfill(
+        200,
+        envelope({
+          payment: {
+            id: "pay_e2e",
+            invoice_id: "inv_e2e",
+            org_id: "org_e2e",
+            amount_minor: 500,
+            refunded_total_minor: 0,
+            currency: "usd",
+            status: "CAPTURED",
+            method: "card",
+            failure_code: null,
+            verified_at: "2026-09-24T10:00:00.000Z",
+            created_at: "2026-09-24T10:00:00.000Z",
+            updated_at: "2026-09-24T10:00:00.000Z",
+          },
+        }),
+      );
+    }
+    if (path === "/admin/v1/billing/payments/pay_e2e:correct" && method === "POST") {
+      const body = JSON.parse(request.postData() ?? "{}") as Record<string, unknown>;
+      state.paymentCorrectionRequests.push({ path, body, headers });
+      if (options.paymentCorrectionUncertain && !state.correctionFailureUsed) {
+        state.correctionFailureUsed = true;
+        return fulfill(504, errorEnvelope("TIMEOUT", true));
+      }
+      return fulfill(
+        200,
+        envelope({ refund_id: "ref_e2e", payment: { id: "pay_e2e", status: "CAPTURED" } }),
+      );
+    }
     if (path.endsWith("/features") && method === "GET")
-      return fulfill(200, envelope({ features: [{ key: "hosting", enabled: true, version: 1 }] }));
-    if (path.includes("/features/hosting") && method === "PATCH") {
+      return fulfill(
+        200,
+        envelope({ features: [{ key: "email_password", enabled: true, version: 1 }] }),
+      );
+    if (path.includes("/features/email_password") && method === "PATCH") {
       if (options.stepUp && !state.stepUpFailureUsed) {
         state.stepUpFailureUsed = true;
         return fulfill(
@@ -152,7 +370,10 @@ async function mockAdminApi(
         state.csrfFailureUsed = true;
         return fulfill(403, errorEnvelope("ADMIN_CSRF_TOKEN_INVALID"));
       }
-      return fulfill(200, envelope({ key: "hosting", enabled: false, version: 2 }));
+      return fulfill(
+        200,
+        envelope({ feature: { key: "email_password", enabled: false, version: 2 } }),
+      );
     }
     if (path.endsWith("/users")) {
       if (state.expireUsers) return fulfill(401, errorEnvelope("ADMIN_SESSION_EXPIRED"));
@@ -176,6 +397,10 @@ test("admin can sign in and open the command palette", async ({ page }) => {
   await mockAdminApi(page);
   await signIn(page);
   await expect(page.getByRole("heading", { name: "Overview" })).toBeVisible();
+  await page.screenshot({
+    path: `test-results/admin-dashboard-${test.info().project.name}.png`,
+    fullPage: true,
+  });
   await page.keyboard.press("Control+K");
   await expect(page.getByRole("dialog", { name: "Command palette" })).toBeVisible();
   await page.getByLabel("Search pages and resources").fill("Users");
@@ -202,7 +427,7 @@ test("CSRF recovery retries a mutation with the same idempotency key", async ({ 
   await page.goto("/features");
   await expect(page.getByRole("heading", { name: "Feature flags" })).toBeVisible();
   await page.getByRole("button", { name: "Disable" }).click();
-  await page.getByLabel("Reason").fill("Pause new hosting intent during an incident");
+  await page.getByLabel("Reason").fill("Pause password sign-in during an incident");
   await page.getByRole("button", { name: "Disable feature" }).click();
   await expect(page.getByRole("heading", { name: "Feature flags" })).toBeVisible();
   await expect.poll(() => state.mutationHeaders.length).toBeGreaterThanOrEqual(2);
@@ -217,12 +442,13 @@ test("step-up continuation repeats the intended mutation with the same key", asy
   await signIn(page);
   await page.goto("/features");
   await page.getByRole("button", { name: "Disable" }).click();
-  await page.getByLabel("Reason").fill("Pause new hosting intent during an incident");
+  await page.getByLabel("Reason").fill("Pause password sign-in during an incident");
   await page.getByRole("button", { name: "Disable feature" }).click();
   await expect(page.getByRole("dialog", { name: "Fresh verification required" })).toBeVisible();
-  await page.getByLabel("Password").fill("a-long-admin-password");
-  await page.getByLabel("MFA code").fill("123456");
-  await page.getByRole("button", { name: "Verify and continue" }).click();
+  const stepUp = page.getByRole("dialog", { name: "Fresh verification required" });
+  await stepUp.getByLabel("Password", { exact: true }).fill("a-long-admin-password");
+  await stepUp.getByLabel("MFA code", { exact: true }).fill("123456");
+  await stepUp.getByRole("button", { name: "Verify and continue" }).click();
   await expect(page.getByRole("heading", { name: "Feature flags" })).toBeVisible();
   await expect.poll(() => state.mutationHeaders.length).toBeGreaterThanOrEqual(2);
   const patchHeaders = state.mutationHeaders.filter((headers) => headers["idempotency-key"]);
@@ -246,7 +472,16 @@ test("mobile navigation keeps security controls available", async ({ page }) => 
   await signIn(page);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("button", { name: "Open navigation" }).click();
-  await expect(page.getByRole("complementary", { name: "Primary navigation" })).toBeVisible();
+  const navigationLocator = page.getByRole("complementary", { name: "Primary navigation" });
+  await expect.poll(async () => (await navigationLocator.boundingBox())?.x).toBe(0);
+  await page.screenshot({
+    path: `test-results/admin-navigation-${test.info().project.name}.png`,
+    fullPage: true,
+  });
+  await expect(navigationLocator).toBeVisible();
+  const navigation = await navigationLocator.boundingBox();
+  expect(navigation?.x).toBeGreaterThanOrEqual(0);
+  expect(navigation?.width).toBeGreaterThan(200);
   await expect(page.getByRole("link", { name: "Security settings" })).toBeVisible();
 });
 
@@ -335,13 +570,72 @@ test("feedback filters reset signed cursors and long messages stay safe on narro
   expect(focusedOutline?.outlineWidth).toBe("3px");
 });
 
+test("payment corrections use the classified :correct route and retain the key for a manual retry", async ({
+  page,
+}) => {
+  const state = await mockAdminApi(page, "ROOT", { paymentCorrectionUncertain: true });
+  await signIn(page);
+  await page.goto("/billing/payments/pay_e2e");
+  await expect(page.getByRole("heading", { name: "pay_e2e" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Correct payment" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Issue refund" })).toHaveCount(0);
+  await page.getByRole("button", { name: "Correct payment" }).click();
+  await page.getByLabel("Correction class").selectOption("PROVIDER_CORRECTION");
+  await page.getByLabel("Amount in minor units").fill("250");
+  await page.getByLabel("Reason").fill("Verified duplicate capture correction");
+  await page.getByRole("button", { name: "Submit correction" }).click();
+  await expect(page.getByText("Correction not completed", { exact: true })).toBeVisible();
+  expect(state.paymentCorrectionRequests).toHaveLength(1);
+  await page.getByRole("button", { name: "Submit correction" }).click();
+  await expect(page.getByRole("heading", { name: "Billing action accepted" })).toBeVisible();
+  expect(state.paymentCorrectionRequests).toHaveLength(2);
+  const [first, second] = state.paymentCorrectionRequests;
+  expect(first?.path).toBe("/admin/v1/billing/payments/pay_e2e:correct");
+  expect(first?.body).toEqual({
+    correction_class: "PROVIDER_CORRECTION",
+    amount_minor: 250,
+    reason: "Verified duplicate capture correction",
+  });
+  expect(second?.body).toEqual(first?.body);
+  expect(first?.headers["idempotency-key"]).toBe(second?.headers["idempotency-key"]);
+  expect(first?.headers["x-csrf-token"]).toBe("browser-csrf");
+  expect(first?.path).not.toContain(":refund");
+});
+
+test("customer detail assigns a published custom tier only to an owned organization", async ({
+  page,
+}) => {
+  const state = await mockAdminApi(page);
+  await signIn(page);
+  await page.goto("/users/usr_e2e");
+  await expect(page.getByRole("heading", { name: "customer@example.com" })).toBeVisible();
+  await expect(page.getByText("No custom tier assignments")).toBeVisible();
+  await page.getByRole("button", { name: "Grant tier" }).click();
+  await page.getByRole("combobox", { name: "Custom tier" }).selectOption("cti_e2e");
+  await expect(page.getByText("Pinned to published revision 1.")).toBeVisible();
+  await page.getByLabel("Reason").fill("Approved customer support grant");
+  await page.getByRole("button", { name: "Assign grant" }).click();
+  await expect(page.getByText(/created a no-charge grant/)).toBeVisible();
+  await expect(page.getByText("Priority support").last()).toBeVisible();
+  expect(state.tierAssignmentRequests).toHaveLength(1);
+  expect(state.tierAssignmentRequests[0]?.body).toEqual({
+    org_id: "org_e2e",
+    tier_id: "cti_e2e",
+    revision_id: "ctr_e2e",
+    duration_days: 30,
+    expected_version: 0,
+    replace_active: false,
+    reason: "Approved customer support grant",
+  });
+  expect(state.tierAssignmentRequests[0]?.headers["idempotency-key"]).toMatch(/^admin_/);
+  expect(state.tierAssignmentRequests[0]?.headers["x-csrf-token"]).toBe("browser-csrf");
+});
+
 test("security headers protect the control-panel document", async ({ request }) => {
   const response = await request.get("/");
   expect(response.status()).toBe(200);
   expect(response.headers()["cache-control"]).toMatch(/no-store|no-cache/);
   expect(response.headers()["x-frame-options"]).toBe("DENY");
   expect(response.headers()["x-content-type-options"]).toBe("nosniff");
-  expect(response.headers()["content-security-policy"]).toContain(
-    "connect-src 'self' https://api.havenerr.com",
-  );
+  expect(response.headers()["content-security-policy"]).toContain("connect-src 'self'");
 });

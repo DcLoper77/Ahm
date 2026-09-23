@@ -9,7 +9,7 @@ import { Button, Field, InlineAlert, TextInput } from "@/components/ui";
 export default function InvitationPage() {
   const params = useParams<{ token: string }>();
   const router = useRouter();
-  const { api, refreshMe } = useAdminSession();
+  const { runMutation, refreshMe } = useAdminSession();
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -33,7 +33,10 @@ export default function InvitationPage() {
     }
     setLoading(true);
     try {
-      await api.acceptInvitation(params.token, { password });
+      await runMutation({
+        path: `/invitations/${encodeURIComponent(params.token)}:accept`,
+        body: { password },
+      });
       await refreshMe();
       router.replace("/mfa/enroll");
     } catch (acceptError) {

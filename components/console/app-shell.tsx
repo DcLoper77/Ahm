@@ -7,6 +7,7 @@ import { hasAnyPermission, roleSummary } from "@/lib/admin/rbac";
 import { NAV_SECTIONS, type NavItem } from "@/lib/admin/navigation";
 import { useAdminSession } from "../auth/session-context";
 import { StepUpDialog } from "../auth/step-up-dialog";
+import { QueryError } from "../data-states";
 import { Icon } from "../icons";
 import { Button, IconButton, InlineAlert } from "../ui";
 
@@ -31,8 +32,8 @@ function CommandPalette({ onClose }: { onClose: () => void }) {
     () =>
       NAV_SECTIONS.flatMap((section) =>
         section.items.map((item) => ({ ...item, section: section.label })),
-      ).filter((item) => hasAnyPermission(admin?.roles ?? [], item.permissions)),
-    [admin?.roles],
+      ).filter((item) => hasAnyPermission(admin?.permissions ?? [], item.permissions)),
+    [admin?.permissions],
   );
   useEffect(() => {
     const focusOrigin = previousFocus.current;
@@ -152,7 +153,8 @@ function ShellLoading() {
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { status, admin, signOut, notice, dismissNotice } = useAdminSession();
+  const { status, admin, signOut, notice, dismissNotice, startupError, retrySession } =
+    useAdminSession();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const active = currentNavItem(pathname);
@@ -184,13 +186,25 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [admin, pathname, router, status]);
 
   if (status === "loading") return <ShellLoading />;
+  if (status === "error") {
+    return (
+      <main className="session-error-shell">
+        <div className="session-error-content">
+          <span className="brand-mark">H</span>
+          <h1>Admin service unavailable</h1>
+          <p>The session check failed. The Control Panel did not treat this as a sign-out.</p>
+          <QueryError error={startupError} onRetry={() => void retrySession()} />
+        </div>
+      </main>
+    );
+  }
   if (status === "unauthenticated" || !admin) {
     return <ShellLoading />;
   }
 
   const visibleSections = NAV_SECTIONS.map((section) => ({
     ...section,
-    items: section.items.filter((item) => hasAnyPermission(admin.roles, item.permissions)),
+    items: section.items.filter((item) => hasAnyPermission(admin.permissions, item.permissions)),
   })).filter((section) => section.items.length);
 
   return (
@@ -213,7 +227,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           />
         </div>
         <div className="environment-pill">
-          <span className="status-dot status-dot-green" /> <span>Production</span>
+          <span className="status-dot status-dot-blue" /> <span>Admin control</span>
           <span className="environment-api">API</span>
         </div>
         <nav className="nav-sections">
@@ -247,6 +261,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <Link href="/settings/sessions" className="sidebar-settings">
             <Icon name="lock" size={16} /> Security settings
           </Link>
+          <Button
+            variant="quiet"
+            icon="logout"
+            className="sidebar-signout"
+            onClick={() => void signOut()}
+          >
+            Sign out
+          </Button>
         </div>
       </aside>
       <div className="shell-main">
@@ -266,8 +288,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
           <div className="topbar-right">
             <div className="topbar-health">
-              <span className="status-dot status-dot-green" />
-              <span>Operational</span>
+              <span className="status-dot status-dot-blue" />
+              <span>Session active</span>
             </div>
             <div className="topbar-divider" />
             <div className="identity-menu">

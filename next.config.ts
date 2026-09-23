@@ -1,8 +1,20 @@
 import type { NextConfig } from "next";
+import { resolveAdminApiUpstream } from "./lib/admin/upstream";
+
+const adminApiUpstream = resolveAdminApiUpstream(process.env);
+const developmentEvalSource = process.env.NODE_ENV === "development" ? " 'unsafe-eval'" : "";
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
   reactStrictMode: true,
+  async rewrites() {
+    return [
+      {
+        source: "/admin/v1/:path*",
+        destination: `${adminApiUpstream}/admin/v1/:path*`,
+      },
+    ];
+  },
   async headers() {
     return [
       {
@@ -25,8 +37,7 @@ const nextConfig: NextConfig = {
           },
           {
             key: "Content-Security-Policy",
-            value:
-              "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://api.havenerr.com; font-src 'self' data:;",
+            value: `default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; script-src 'self' 'unsafe-inline'${developmentEvalSource}; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'; font-src 'self' data:;`,
           },
         ],
       },

@@ -1,78 +1,26 @@
 import type { AdminPermission, AdminRole } from "./types";
 
-export const ROLE_PERMISSIONS: Record<AdminRole, readonly AdminPermission[]> = {
-  ROOT: ["*"],
-  PLATFORM_ADMIN: [
-    "admins.read",
-    "admins.invite",
-    "users.read",
-    "orgs.read",
-    "catalog.read",
-    "catalog.write",
-    "system.read",
-    "system.write",
-    "quotas.read",
-    "quotas.write",
-    "analytics.read",
-  ],
-  SUPPORT_OPERATOR: [
-    "users.read",
-    "orgs.read",
-    "users.suspend",
-    "orgs.suspend",
-    "catalog.read",
-    "quotas.read",
-    "quotas.write",
-  ],
-  BILLING_ADMIN: [
-    "users.read",
-    "orgs.read",
-    "billing.read",
-    "billing.write",
-    "catalog.read",
-    "catalog.write",
-    "quotas.read",
-  ],
-  INFRA_ADMIN: [
-    "users.read",
-    "orgs.read",
-    "hosting.read",
-    "hosting.write",
-    "domains.read",
-    "domains.write",
-    "databases.read",
-    "databases.write",
-    "vps.read",
-    "vps.write",
-    "catalog.read",
-  ],
-  ANALYST: ["analytics.read", "audit.read", "catalog.read"],
-};
-
-export function permissionsForRoles(roles: readonly AdminRole[]): Set<AdminPermission> {
-  const permissions = new Set<AdminPermission>();
-  for (const role of roles) {
-    for (const permission of ROLE_PERMISSIONS[role] ?? []) permissions.add(permission);
-  }
-  return permissions;
-}
-
-export function hasPermission(roles: readonly AdminRole[], permission: AdminPermission): boolean {
-  const permissions = permissionsForRoles(roles);
-  return permissions.has("*") || permissions.has(permission);
+/** Effective permissions come from the authenticated backend session. The frontend never duplicates
+ * the role matrix that the backend uses to authorize a request. */
+export function hasPermission(
+  permissions: readonly AdminPermission[],
+  permission: AdminPermission,
+): boolean {
+  return permissions.includes("*") || permissions.includes(permission);
 }
 
 export function hasAnyPermission(
-  roles: readonly AdminRole[],
   permissions: readonly AdminPermission[],
+  required: readonly AdminPermission[],
 ): boolean {
-  return permissions.some((permission) => hasPermission(roles, permission));
+  return required.some((permission) => hasPermission(permissions, permission));
 }
 
-export function canGrantRole(grantorRoles: readonly AdminRole[], targetRole: AdminRole): boolean {
-  return (ROLE_PERMISSIONS[targetRole] ?? []).every((permission) =>
-    hasPermission(grantorRoles, permission),
-  );
+export function canGrantRole(
+  assignableRoles: readonly AdminRole[],
+  targetRole: AdminRole,
+): boolean {
+  return assignableRoles.includes(targetRole);
 }
 
 export function roleLabel(role: AdminRole): string {

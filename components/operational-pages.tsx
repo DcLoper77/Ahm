@@ -28,7 +28,7 @@ import type { AdminRecord } from "@/lib/admin/types";
 export function AuditPage() {
   const { admin } = useAdminSession();
   const queryClient = useQueryClient();
-  const canRead = hasPermission(admin?.roles ?? [], "audit.read");
+  const canRead = hasPermission(admin?.permissions ?? [], "audit.read");
   const [draft, setDraft] = useState({
     actor_id: "",
     action: "",
@@ -244,8 +244,8 @@ export function AuditPage() {
   );
 }
 
-type OperationsTab = "health" | "workers" | "jobs" | "outbox" | "quarantine";
-const reconcilerSystems = ["hosting", "databases", "vps", "billing"] as const;
+type OperationsTab = "health" | "jobs" | "outbox" | "quarantine";
+const reconcilerSystems = ["databases", "quick_databases", "billing"] as const;
 
 function recordsFor(data: AdminRecord | undefined, keys: string[]): AdminRecord[] {
   if (!data) return [];
@@ -260,9 +260,11 @@ function recordsFor(data: AdminRecord | undefined, keys: string[]): AdminRecord[
 export function SystemPage() {
   const { admin, runMutation } = useAdminSession();
   const queryClient = useQueryClient();
-  const canRead = hasPermission(admin?.roles ?? [], "system.read");
-  const canWrite = hasPermission(admin?.roles ?? [], "system.write");
+  const canRead = hasPermission(admin?.permissions ?? [], "system.read");
+  const canWrite = hasPermission(admin?.permissions ?? [], "system.write");
   const [tab, setTab] = useState<OperationsTab>("health");
+  const [cursorStack, setCursorStack] = useState<(string | undefined)[]>([undefined]);
+  const cursor = cursorStack[cursorStack.length - 1];
   const [pending, setPending] = useState<{
     action: "requeue-job" | "requeue-outbox" | "reconciler" | "approve" | "reject" | "execute";
     id: string;
@@ -272,18 +274,23 @@ export function SystemPage() {
   const health = useAdminQuery(["system", "health"], (api) => api.system.health(), {
     enabled: canRead && tab === "health",
   });
-  const workers = useAdminQuery(["system", "workers"], (api) => api.system.workers(), {
-    enabled: canRead && tab === "workers",
-  });
-  const jobs = useAdminQuery(["system", "jobs"], (api) => api.system.jobs({ limit: 25 }), {
-    enabled: canRead && tab === "jobs",
-  });
-  const outbox = useAdminQuery(["system", "outbox"], (api) => api.system.outbox({ limit: 25 }), {
-    enabled: canRead && tab === "outbox",
-  });
+  const jobs = useAdminQuery(
+    ["system", "jobs", cursor],
+    (api) => api.system.jobs({ limit: 25, cursor }),
+    {
+      enabled: canRead && tab === "jobs",
+    },
+  );
+  const outbox = useAdminQuery(
+    ["system", "outbox", cursor],
+    (api) => api.system.outbox({ limit: 25, cursor }),
+    {
+      enabled: canRead && tab === "outbox",
+    },
+  );
   const quarantine = useAdminQuery(
-    ["system", "quarantine"],
-    (api) => api.system.quarantine({ limit: 25 }),
+    ["system", "quarantine", cursor],
+    (api) => api.system.quarantine({ limit: 25, cursor }),
     { enabled: canRead && tab === "quarantine" },
   );
   const refresh = () => void queryClient.invalidateQueries({ queryKey: ["system", tab] });
@@ -305,7 +312,7 @@ export function SystemPage() {
     else if (pending.action === "reconciler")
       response = await runMutation<AdminRecord>({
         path: `/system/reconcilers/${encodeURIComponent(pending.id)}:run`,
-        body: input.reason ? { reason: input.reason } : {},
+        body: {},
         step_up_action: "admin:reconciler_run",
       });
     else
@@ -328,44 +335,28 @@ export function SystemPage() {
         />
         <QueryEmpty
           title="Permission required"
-          description="Ask for system.read to inspect health, workers, jobs, outbox, and quarantine."
+          description="Ask for system.read to inspect health, jobs, outbox, and quarantine."
         />
       </>
     );
-  const busy =
-    health.isLoading ||
-    workers.isLoading ||
-    jobs.isLoading ||
-    outbox.isLoading ||
-    quarantine.isLoading;
+  const busy = health.isLoading || jobs.isLoading || outbox.isLoading || quarantine.isLoading;
   const activeQuery =
-    tab === "health"
-      ? health
-      : tab === "workers"
-        ? workers
-        : tab === "jobs"
-          ? jobs
-          : tab === "outbox"
-            ? outbox
-            : quarantine;
+    tab === "health" ? health : tab === "jobs" ? jobs : tab === "outbox" ? outbox : quarantine;
   const data = activeQuery.data?.data as AdminRecord | undefined;
-  const rows =
-    tab === "workers"
-      ? (workers.data?.data.workers ?? [])
-      : recordsFor(
-          data,
-          tab === "jobs"
-            ? ["jobs", "items"]
-            : tab === "outbox"
-              ? ["outbox", "items"]
-              : ["quarantine", "items"],
-        );
+  const rows = recordsFor(
+    data,
+    tab === "jobs"
+      ? ["jobs", "items"]
+      : tab === "outbox"
+        ? ["outbox", "items"]
+        : ["quarantine", "items"],
+  );
   return (
     <>
       <PageHeader
         eyebrow="Control"
         title="Operations"
-        description="Health, worker capacity, durable jobs, outbox retry evidence, and two-person quarantine controls."
+        description="Health, durable jobs, outbox retry evidence, and two-person quarantine controls."
         actions={
           <Button
             variant="secondary"
@@ -384,11 +375,14 @@ export function SystemPage() {
         </InlineAlert>
       ) : null}
       <div className="tabs">
-        {(["health", "workers", "jobs", "outbox", "quarantine"] as OperationsTab[]).map((item) => (
+        {(["health", "jobs", "outbox", "quarantine"] as OperationsTab[]).map((item) => (
           <button
             key={item}
             className={`tab ${tab === item ? "is-active" : ""}`}
-            onClick={() => setTab(item)}
+            onClick={() => {
+              setTab(item);
+              setCursorStack([undefined]);
+            }}
           >
             {humanize(item)}
           </button>
@@ -400,8 +394,8 @@ export function SystemPage() {
             <div>
               <h2>Queue a reconciler</h2>
               <p>
-                Reconciliation creates a durable admin intent. It never calls a provider from the
-                browser and does not mean that external state has already changed.
+                Reconciliation creates a durable admin intent. The browser only queues the
+                operation; it does not perform the reconciliation itself.
               </p>
             </div>
             <Badge tone="warning" icon="refresh">
@@ -428,15 +422,29 @@ export function SystemPage() {
           <QueryError error={activeQuery.error} onRetry={() => void activeQuery.refetch()} />
         ) : tab === "health" ? (
           <HealthProjection data={data} />
-        ) : tab === "workers" ? (
-          <WorkerProjection rows={rows} />
         ) : (
-          <OperationsTable
-            tab={tab}
-            rows={rows}
-            canWrite={canWrite}
-            onAction={(action, id, record) => setPending({ action, id, record })}
-          />
+          <>
+            <OperationsTable
+              tab={tab}
+              rows={rows}
+              canWrite={canWrite}
+              onAction={(action, id, record) => setPending({ action, id, record })}
+            />
+            <div className="table-footer">
+              <CursorPagination
+                hasNext={typeof data?.next_cursor === "string"}
+                canBack={cursorStack.length > 1}
+                onNext={() => {
+                  if (typeof data?.next_cursor === "string")
+                    setCursorStack((stack) => [...stack, data.next_cursor as string]);
+                }}
+                onBack={() =>
+                  setCursorStack((stack) => (stack.length > 1 ? stack.slice(0, -1) : stack))
+                }
+                label={tab}
+              />
+            </div>
+          </>
         )}
       </Card>
       {pending ? (
@@ -459,7 +467,7 @@ export function SystemPage() {
                   ? "Approve"
                   : "Continue"
           }
-          reasonRequired={pending.action === "reject" || pending.action === "reconciler"}
+          reasonRequired={pending.action === "reject"}
           dangerous={pending.action === "execute" || pending.action === "reject"}
           onConfirm={submit}
           onClose={() => setPending(null)}
@@ -488,50 +496,6 @@ function HealthProjection({ data }: { data: AdminRecord | undefined }) {
     <QueryEmpty
       title="No health signals reported"
       description="The system health projection returned no safe scalar values for this role."
-    />
-  );
-}
-function WorkerProjection({ rows }: { rows: AdminRecord[] }) {
-  return rows.length ? (
-    <div className="worker-grid">
-      {rows.map((row, index) => (
-        <div className="worker-card" key={String(row.id ?? index)}>
-          <div className="card-heading">
-            <div>
-              <h3>
-                {typeof row.name === "string"
-                  ? row.name
-                  : typeof row.worker_type === "string"
-                    ? humanize(row.worker_type)
-                    : "Shared worker"}
-              </h3>
-              <p>{typeof row.id === "string" ? row.id : "Worker identity not reported"}</p>
-            </div>
-            <StatusBadge value={row.status ?? row.health ?? "UNKNOWN"} />
-          </div>
-          <div className="detail-section">
-            <div className="detail-rows">
-              <div className="detail-row">
-                <dt>Capacity</dt>
-                <dd>{String(row.capacity ?? row.available_slots ?? "Not reported")}</dd>
-              </div>
-              <div className="detail-row">
-                <dt>Heartbeat</dt>
-                <dd>{formatDate(row.last_heartbeat_at ?? row.heartbeat_at)}</dd>
-              </div>
-              <div className="detail-row">
-                <dt>Observation</dt>
-                <dd>{formatDate(row.observed_at)}</dd>
-              </div>
-            </div>
-          </div>
-        </div>
-      ))}
-    </div>
-  ) : (
-    <QueryEmpty
-      title="No workers reported"
-      description="The worker projection returned an empty page."
     />
   );
 }

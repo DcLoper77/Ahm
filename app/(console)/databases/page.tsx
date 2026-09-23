@@ -1,5 +1,5 @@
-import { InfraListPage } from "@/components/infra/resource-page";
+import { DatabaseListPage } from "@/components/infra/database-pages";
 
 export default function DatabasesPage() {
-  return <InfraListPage kind="databases" />;
+  return <DatabaseListPage />;
 }

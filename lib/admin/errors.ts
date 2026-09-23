@@ -19,6 +19,7 @@ export type AdminErrorCode =
   | "ADMIN_SESSION_EXPIRED"
   | "ADMIN_PERMISSION_DENIED"
   | "ADMIN_CSRF_TOKEN_INVALID"
+  | "CREDENTIAL_REVEAL_REPLAY_UNAVAILABLE"
   | "ADMIN_INVITE_INVALID"
   | "ADMIN_INVITE_EXPIRED"
   | "ADMIN_INVITE_USED"
@@ -44,16 +45,6 @@ export type AdminErrorCode =
   | "QUOTA_EXCEEDED"
   | "CONCURRENCY_LIMIT"
   | "DEPENDENCY_UNAVAILABLE"
-  | "WORKER_UNAVAILABLE"
-  | "WORKER_CAPACITY_EXHAUSTED"
-  | "WORKER_OPERATION_FAILED"
-  | "WORKER_SIGNATURE_INVALID"
-  | "WORKER_REQUEST_EXPIRED"
-  | "WORKER_REPLAY_DETECTED"
-  | "HOSTING_CONTROL_UNAVAILABLE"
-  | "HOSTING_CONTROL_RESPONSE_INVALID"
-  | "HOSTING_CONTROL_VERSION_UNSUPPORTED"
-  | "HOSTING_NOT_RUNNING"
   | "CIRCUIT_OPEN"
   | "TIMEOUT"
   | "SERVICE_DEGRADED"
@@ -63,6 +54,11 @@ export type AdminErrorCode =
   | "NOT_IMPLEMENTED"
   | "FEATURE_DISABLED"
   | "SAGA_FAILED"
+  | "PAYMENT_PROVIDER_REJECTED"
+  | "PAYMENT_VERIFICATION_MISMATCH"
+  | "REFUND_NOT_AVAILABLE"
+  | "NETWORK_ERROR"
+  | "MALFORMED_RESPONSE"
   | "UPSTREAM_RESPONSE_INVALID";
 
 const safeMessages: Record<AdminErrorCode, string> = {
@@ -84,6 +80,8 @@ const safeMessages: Record<AdminErrorCode, string> = {
   ADMIN_SESSION_EXPIRED: "Your admin session expired. Sign in again to continue.",
   ADMIN_PERMISSION_DENIED: "Your current role does not allow this action.",
   ADMIN_CSRF_TOKEN_INVALID: "Your security token expired. Refresh and try again.",
+  CREDENTIAL_REVEAL_REPLAY_UNAVAILABLE:
+    "This one-time security value cannot be shown again. Start a fresh setup or rotation.",
   ADMIN_INVITE_INVALID: "This invitation link is not valid.",
   ADMIN_INVITE_EXPIRED: "This invitation has expired.",
   ADMIN_INVITE_USED: "This invitation has already been accepted.",
@@ -110,16 +108,6 @@ const safeMessages: Record<AdminErrorCode, string> = {
   QUOTA_EXCEEDED: "The requested value exceeds the supported quota.",
   CONCURRENCY_LIMIT: "The operation queue is at capacity. Try again shortly.",
   DEPENDENCY_UNAVAILABLE: "A dependency is unavailable. The operation may remain pending.",
-  WORKER_UNAVAILABLE: "The worker is unavailable. The operation may remain pending.",
-  WORKER_CAPACITY_EXHAUSTED: "Worker capacity is exhausted. Try again shortly.",
-  WORKER_OPERATION_FAILED: "The worker reported a terminal failure.",
-  WORKER_SIGNATURE_INVALID: "The operation could not be verified.",
-  WORKER_REQUEST_EXPIRED: "The operation request expired.",
-  WORKER_REPLAY_DETECTED: "The operation was rejected as a duplicate.",
-  HOSTING_CONTROL_UNAVAILABLE: "Hosting control is unavailable. The projection may remain pending.",
-  HOSTING_CONTROL_RESPONSE_INVALID: "Hosting control returned an invalid response.",
-  HOSTING_CONTROL_VERSION_UNSUPPORTED: "The hosting control version is unsupported.",
-  HOSTING_NOT_RUNNING: "The hosting project is not running.",
   CIRCUIT_OPEN: "The dependency circuit is open. Try again after recovery.",
   TIMEOUT: "The request timed out. The same action can be retried safely.",
   SERVICE_DEGRADED: "The service is degraded. We will keep the pending state visible.",
@@ -129,6 +117,14 @@ const safeMessages: Record<AdminErrorCode, string> = {
   NOT_IMPLEMENTED: "This operation is not available.",
   FEATURE_DISABLED: "This operation is currently disabled.",
   SAGA_FAILED: "The operation reached a terminal failure. Review its audit evidence.",
+  PAYMENT_PROVIDER_REJECTED:
+    "The payment correction could not be completed. Review the current payment status before trying again.",
+  PAYMENT_VERIFICATION_MISMATCH:
+    "The payment evidence did not match the stored record. Review the payment status.",
+  REFUND_NOT_AVAILABLE: "This billing correction is unavailable under the current policy.",
+  NETWORK_ERROR: "The admin service could not be reached. Check the connection and try again.",
+  MALFORMED_RESPONSE:
+    "The admin service returned an unreadable response. Retry or contact the operator with the request ID.",
   UPSTREAM_RESPONSE_INVALID:
     "The upstream response could not be trusted; no automatic repeat was made.",
 };
@@ -140,11 +136,9 @@ const retryableCodes = new Set<AdminErrorCode>([
   "RATE_LIMITED",
   "CONCURRENCY_LIMIT",
   "DEPENDENCY_UNAVAILABLE",
-  "WORKER_UNAVAILABLE",
-  "WORKER_CAPACITY_EXHAUSTED",
-  "HOSTING_CONTROL_UNAVAILABLE",
   "CIRCUIT_OPEN",
   "TIMEOUT",
+  "NETWORK_ERROR",
   "SERVICE_DEGRADED",
   "DATABASE_POOL_EXHAUSTED",
   "INTERNAL_ERROR",

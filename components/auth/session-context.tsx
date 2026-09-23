@@ -16,7 +16,7 @@ import { AdminApiError } from "@/lib/admin/errors";
 import type { AdminLoginBody } from "@/lib/admin/bodies";
 import type { AdminMe, MutationInput } from "@/lib/admin/types";
 
-type SessionStatus = "loading" | "authenticated" | "unauthenticated";
+type SessionStatus = "loading" | "authenticated" | "unauthenticated" | "error";
 
 export interface StepUpCredentials {
   email: string;
@@ -41,6 +41,7 @@ export interface AdminNotice {
 
 interface AdminSessionContextValue {
   status: SessionStatus;
+  startupError: AdminApiError | null;
   admin: AdminMe | null;
   api: AdminAuthApi & AdminResourceApi;
   client: AdminApiClient;
@@ -50,6 +51,7 @@ interface AdminSessionContextValue {
   signIn: (credentials: AdminLoginBody) => Promise<{ mfa_enrollment_required: boolean }>;
   signOut: () => Promise<void>;
   refreshSession: () => Promise<void>;
+  retrySession: () => Promise<void>;
   refreshMe: () => Promise<AdminMe | null>;
   runMutation: <T>(input: MutationInput) => Promise<ApiResult<T>>;
   dismissNotice: () => void;
@@ -63,21 +65,47 @@ function safeReturnPath(): string {
   return path.startsWith("/") && !path.startsWith("//") ? path : "/";
 }
 
+function stableValue(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableValue).join(",")}]`;
+  if (value && typeof value === "object") {
+    const object = value as Record<string, unknown>;
+    return `{${Object.keys(object)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableValue(object[key])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
+}
+
+async function mutationFingerprint(input: MutationInput): Promise<string> {
+  const method = input.method ?? "POST";
+  const body = stableValue(input.body ?? null);
+  const source = `${method}\n${input.path}\n${body}`;
+  if (!globalThis.crypto?.subtle) return `${method}:${input.path}`;
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(source));
+  return `${method}:${input.path}:${Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
+}
+
 export function AdminSessionProvider({ children }: { children: React.ReactNode }) {
   const queryClient = useQueryClient();
   const [client] = useState(() => new AdminApiClient());
   const api = useMemo(() => createAdminApi(client), [client]);
   const [status, setStatus] = useState<SessionStatus>("loading");
+  const [startupError, setStartupError] = useState<AdminApiError | null>(null);
   const [admin, setAdmin] = useState<AdminMe | null>(null);
   const [notice, setNotice] = useState<AdminNotice | null>(null);
   const [stepUpPrompt, setStepUpPrompt] = useState<StepUpPrompt | null>(null);
   const [idleExpiresAt, setIdleExpiresAt] = useState<string | null>(null);
   const bootstrapped = useRef(false);
+  const unresolvedMutationKeys = useRef(new Map<string, string>());
 
   const expireSession = useCallback(() => {
+    client.clearCsrfToken();
+    unresolvedMutationKeys.current.clear();
     queryClient.clear();
     setAdmin(null);
     setIdleExpiresAt(null);
+    setStartupError(null);
     setStatus("unauthenticated");
     if (
       typeof window !== "undefined" &&
@@ -87,12 +115,13 @@ export function AdminSessionProvider({ children }: { children: React.ReactNode }
       const returnPath = encodeURIComponent(safeReturnPath());
       window.location.replace(`/login?returnTo=${returnPath}`);
     }
-  }, [queryClient]);
+  }, [client, queryClient]);
 
   const refreshMe = useCallback(async (): Promise<AdminMe | null> => {
     try {
       const result = await api.me();
       setAdmin(result.data);
+      setStartupError(null);
       setStatus("authenticated");
       return result.data;
     } catch (error) {
@@ -101,7 +130,12 @@ export function AdminSessionProvider({ children }: { children: React.ReactNode }
         return null;
       }
       setAdmin(null);
-      setStatus("unauthenticated");
+      const normalized =
+        error instanceof AdminApiError
+          ? error
+          : new AdminApiError({ code: "NETWORK_ERROR", status: 0 });
+      setStartupError(normalized);
+      setStatus("error");
       return null;
     }
   }, [api, expireSession]);
@@ -129,12 +163,14 @@ export function AdminSessionProvider({ children }: { children: React.ReactNode }
 
   const signIn = useCallback(
     async (credentials: AdminLoginBody) => {
+      setStartupError(null);
       const result = await api.login(credentials);
       setIdleExpiresAt(result.data.idle_expires_at);
       setStatus("authenticated");
       try {
         const me = await api.me();
         setAdmin(me.data);
+        setStartupError(null);
       } catch (error) {
         if (
           !result.data.mfa_enrollment_required ||
@@ -160,18 +196,25 @@ export function AdminSessionProvider({ children }: { children: React.ReactNode }
     } catch {
       // Expired sessions are already effectively logged out.
     } finally {
+      client.clearCsrfToken();
+      unresolvedMutationKeys.current.clear();
       queryClient.clear();
       setAdmin(null);
       setIdleExpiresAt(null);
       setStatus("unauthenticated");
     }
-  }, [api, queryClient]);
+  }, [api, client, queryClient]);
 
   const refreshSession = useCallback(async () => {
     const result = await api.refresh();
     setIdleExpiresAt(result.data.idle_expires_at);
     await refreshMe();
   }, [api, refreshMe]);
+
+  const retrySession = useCallback(async () => {
+    setStatus("loading");
+    await refreshMe();
+  }, [refreshMe]);
 
   useEffect(() => {
     if (status !== "authenticated") return;
@@ -186,18 +229,30 @@ export function AdminSessionProvider({ children }: { children: React.ReactNode }
 
   const runMutation = useCallback(
     async <T,>(input: MutationInput): Promise<ApiResult<T>> => {
-      const idempotencyKey = input.idempotency_key ?? createIdempotencyKey();
+      const fingerprint = await mutationFingerprint(input);
+      const idempotencyKey =
+        input.idempotency_key ??
+        unresolvedMutationKeys.current.get(fingerprint) ??
+        createIdempotencyKey();
+      unresolvedMutationKeys.current.set(fingerprint, idempotencyKey);
       const execute = () =>
         client.request<T>(input.path, {
           method: input.method ?? "POST",
           body: input.body,
           idempotencyKey,
+          moneyMoving: input.money_moving,
         });
 
       try {
-        return await execute();
+        const result = await execute();
+        unresolvedMutationKeys.current.delete(fingerprint);
+        return result;
       } catch (error) {
-        if (!(error instanceof AdminApiError) || error.code !== "STEP_UP_REQUIRED") throw error;
+        if (!(error instanceof AdminApiError) || error.code !== "STEP_UP_REQUIRED") {
+          if (!(error instanceof AdminApiError && error.retryable))
+            unresolvedMutationKeys.current.delete(fingerprint);
+          throw error;
+        }
 
         const details = error.details;
         const requestedAction =
@@ -224,7 +279,9 @@ export function AdminSessionProvider({ children }: { children: React.ReactNode }
                 const me = await api.me();
                 setAdmin(me.data);
                 setStatus("authenticated");
-                resolve(await execute());
+                const result = await execute();
+                unresolvedMutationKeys.current.delete(fingerprint);
+                resolve(result);
               } catch (stepUpError) {
                 reject(stepUpError);
               } finally {
@@ -246,6 +303,7 @@ export function AdminSessionProvider({ children }: { children: React.ReactNode }
   const value = useMemo<AdminSessionContextValue>(
     () => ({
       status,
+      startupError,
       admin,
       api,
       client,
@@ -255,6 +313,7 @@ export function AdminSessionProvider({ children }: { children: React.ReactNode }
       signIn,
       signOut,
       refreshSession,
+      retrySession,
       refreshMe,
       runMutation,
       dismissNotice: () => setNotice(null),
@@ -271,7 +330,9 @@ export function AdminSessionProvider({ children }: { children: React.ReactNode }
       signIn,
       signOut,
       status,
+      startupError,
       stepUpPrompt,
+      retrySession,
     ],
   );
 

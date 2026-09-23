@@ -30,6 +30,28 @@ import type { AdminListQuery, AdminRecord } from "@/lib/admin/types";
 
 export type BillingKind = "subscriptions" | "invoices" | "payments" | "refunds";
 
+interface BillingFilters {
+  org_id: string;
+  status: string;
+  currency: string;
+  plan_code: string;
+  invoice_id: string;
+  payment_id: string;
+}
+
+function billingQuery(
+  kind: BillingKind,
+  filters: BillingFilters,
+  cursor: string | undefined,
+): AdminListQuery {
+  const shared = { cursor, limit: 25, org_id: filters.org_id, status: filters.status };
+  if (kind === "subscriptions")
+    return { ...shared, currency: filters.currency, plan_code: filters.plan_code };
+  if (kind === "invoices") return { ...shared, currency: filters.currency };
+  if (kind === "payments") return { ...shared, invoice_id: filters.invoice_id };
+  return { ...shared, payment_id: filters.payment_id };
+}
+
 const configs: Record<
   BillingKind,
   { title: string; description: string; dataKey: string; href: string }
@@ -54,7 +76,7 @@ const configs: Record<
   },
   refunds: {
     title: "Refunds",
-    description: "Refund and GST credit-note state without gateway references.",
+    description: "Read-only correction and GST credit-note history without gateway references.",
     dataKey: "refunds",
     href: "/billing/refunds",
   },
@@ -80,34 +102,47 @@ function primaryValue(row: AdminRecord, kind: BillingKind): string {
   if (kind === "subscriptions")
     return typeof row.plan_code === "string" ? row.plan_code : String(row.id ?? "Subscription");
   if (kind === "invoices")
-    return typeof row.invoice_number === "string"
-      ? row.invoice_number
-      : String(row.id ?? "Invoice");
+    return typeof row.number === "string" ? row.number : String(row.id ?? "Invoice");
   if (kind === "payments")
     return typeof row.payment_id === "string" ? row.payment_id : String(row.id ?? "Payment");
   return typeof row.refund_id === "string" ? row.refund_id : String(row.id ?? "Refund");
 }
 
 function moneyValue(row: AdminRecord): React.ReactNode {
-  const amount = row.amount_minor ?? row.total_minor ?? row.refunded_amount_minor;
+  const amount = row.amount_minor ?? row.total_minor;
   const currency = row.currency;
   return typeof amount === "number" && typeof currency === "string"
     ? formatMoneyMinor(amount, currency)
     : "—";
 }
 
-export function BillingListPage({ kind }: { kind: BillingKind }) {
+export function BillingListPage({
+  kind,
+  initialOrgId = "",
+}: {
+  kind: BillingKind;
+  initialOrgId?: string;
+}) {
   const config = configs[kind];
   const { admin } = useAdminSession();
   const queryClient = useQueryClient();
-  const canRead = hasPermission(admin?.roles ?? [], "billing.read");
-  const [draft, setDraft] = useState({ org_id: "", status: "", currency: "" });
-  const [filters, setFilters] = useState(draft);
+  const canRead = hasPermission(admin?.permissions ?? [], "billing.read");
+  const emptyFilters: BillingFilters = {
+    org_id: "",
+    status: "",
+    currency: "",
+    plan_code: "",
+    invoice_id: "",
+    payment_id: "",
+  };
+  const initialFilters: BillingFilters = { ...emptyFilters, org_id: initialOrgId };
+  const [draft, setDraft] = useState<BillingFilters>(initialFilters);
+  const [filters, setFilters] = useState<BillingFilters>(initialFilters);
   const [cursorStack, setCursorStack] = useState<(string | undefined)[]>([undefined]);
   const cursor = cursorStack[cursorStack.length - 1];
   const query = useAdminQuery(
     ["billing", kind, filters, cursor],
-    (api) => listFor(api, kind, { ...filters, cursor, limit: 25 }),
+    (api) => listFor(api, kind, billingQuery(kind, filters, cursor)),
     { enabled: canRead },
   );
   const rows = query.data?.data
@@ -170,7 +205,14 @@ export function BillingListPage({ kind }: { kind: BillingKind }) {
     setCursorStack([undefined]);
   };
   const clear = () => {
-    const empty = { org_id: "", status: "", currency: "" };
+    const empty = {
+      org_id: "",
+      status: "",
+      currency: "",
+      plan_code: "",
+      invoice_id: "",
+      payment_id: "",
+    };
     setDraft(empty);
     setFilters(empty);
     setCursorStack([undefined]);
@@ -254,18 +296,57 @@ export function BillingListPage({ kind }: { kind: BillingKind }) {
               placeholder="e.g. FAILED"
             />
           </Field>
-          <Field label="Currency">
-            <SelectInput
-              value={draft.currency}
-              onChange={(event) =>
-                setDraft((current) => ({ ...current, currency: event.target.value }))
-              }
-            >
-              <option value="">All currencies</option>
-              <option value="inr">INR</option>
-              <option value="usd">USD</option>
-            </SelectInput>
-          </Field>
+          {kind === "subscriptions" ? (
+            <Field label="Plan">
+              <SelectInput
+                value={draft.plan_code}
+                onChange={(event) =>
+                  setDraft((current) => ({ ...current, plan_code: event.target.value }))
+                }
+              >
+                <option value="">All plans</option>
+                <option value="free">Free</option>
+                <option value="developer">Developer</option>
+                <option value="founder">Founder</option>
+              </SelectInput>
+            </Field>
+          ) : null}
+          {kind === "subscriptions" || kind === "invoices" ? (
+            <Field label="Currency">
+              <SelectInput
+                value={draft.currency}
+                onChange={(event) =>
+                  setDraft((current) => ({ ...current, currency: event.target.value }))
+                }
+              >
+                <option value="">All currencies</option>
+                <option value="inr">INR</option>
+                <option value="usd">USD</option>
+              </SelectInput>
+            </Field>
+          ) : null}
+          {kind === "payments" ? (
+            <Field label="Invoice ID">
+              <TextInput
+                value={draft.invoice_id}
+                onChange={(event) =>
+                  setDraft((current) => ({ ...current, invoice_id: event.target.value }))
+                }
+                placeholder="Optional inv_…"
+              />
+            </Field>
+          ) : null}
+          {kind === "refunds" ? (
+            <Field label="Payment ID">
+              <TextInput
+                value={draft.payment_id}
+                onChange={(event) =>
+                  setDraft((current) => ({ ...current, payment_id: event.target.value }))
+                }
+                placeholder="Optional pay_…"
+              />
+            </Field>
+          ) : null}
           <div className="filter-actions">
             <Button type="submit" variant="primary">
               Apply
@@ -316,8 +397,9 @@ export function BillingDetailPage({ kind, id }: { kind: BillingKind; id: string 
   const config = configs[kind];
   const { admin, runMutation } = useAdminSession();
   const queryClient = useQueryClient();
-  const canRead = hasPermission(admin?.roles ?? [], "billing.read");
-  const canWrite = hasPermission(admin?.roles ?? [], "billing.write");
+  const canRead = hasPermission(admin?.permissions ?? [], "billing.read");
+  const canWrite = hasPermission(admin?.permissions ?? [], "billing.write");
+  const canCorrect = hasPermission(admin?.permissions ?? [], "billing.correction");
   const query = useAdminQuery(
     ["billing", kind, id],
     (api) =>
@@ -330,14 +412,15 @@ export function BillingDetailPage({ kind, id }: { kind: BillingKind; id: string 
             : api.billing.refundDetail(id),
     { enabled: canRead },
   );
-  const [pendingAction, setPendingAction] = useState<"cancel" | "refund" | null>(null);
+  const [pendingAction, setPendingAction] = useState<"cancel" | "correction" | null>(null);
   const [requestId, setRequestId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const record = query.data?.data;
   const main = record?.subscription ?? record?.invoice ?? record?.payment ?? record?.refund;
   const entity = main && typeof main === "object" ? (main as AdminRecord) : record;
   const title =
-    entity && typeof entity.invoice_number === "string"
-      ? entity.invoice_number
+    entity && typeof entity.number === "string"
+      ? entity.number
       : entity && typeof entity.plan_code === "string"
         ? entity.plan_code
         : id;
@@ -357,25 +440,46 @@ export function BillingDetailPage({ kind, id }: { kind: BillingKind; id: string 
         expected_version: input.expected_version,
         reason: input.reason ?? "",
       },
-      step_up_action: "admin:subscription_cancel",
+      step_up_action: "admin:billing_subscription_cancel",
     });
     setRequestId(response.request_id);
     setPendingAction(null);
     await queryClient.invalidateQueries({ queryKey: ["billing", kind, id] });
   };
-  const refund = async (input: { reason?: string; amount_minor?: number }) => {
+  const correctPayment = async (input: {
+    correction_class:
+      "DUPLICATE_CAPTURE" | "PROVIDER_CORRECTION" | "LEGAL_CORRECTION" | "CHARGEBACK_REVERSAL";
+    reason: string;
+    amount_minor?: number;
+  }) => {
     const response = await runMutation<AdminRecord>({
-      path: `/billing/payments/${encodeURIComponent(id)}:refund`,
-      body: {
-        ...(input.amount_minor ? { amount_minor: input.amount_minor } : {}),
-        reason: input.reason ?? "",
-      },
-      step_up_action: "admin:billing_refund",
+      path: `/billing/payments/${encodeURIComponent(id)}:correct`,
+      body: input,
+      step_up_action: "admin:billing_correction",
+      money_moving: true,
     });
     setRequestId(response.request_id);
     setPendingAction(null);
     await queryClient.invalidateQueries({ queryKey: ["billing", "payments", id] });
+    await queryClient.invalidateQueries({ queryKey: ["billing", "payments"] });
     await queryClient.invalidateQueries({ queryKey: ["billing", "refunds"] });
+  };
+
+  const reconcileBilling = async () => {
+    setActionError(null);
+    try {
+      const response = await runMutation<AdminRecord>({
+        path: "/billing/reconcile",
+        body: {},
+        step_up_action: "admin:billing_reconcile",
+      });
+      setRequestId(response.request_id);
+      await queryClient.invalidateQueries({ queryKey: ["billing"] });
+    } catch (error) {
+      setActionError(
+        error instanceof Error ? error.message : "Billing reconciliation could not be queued.",
+      );
+    }
   };
 
   if (!canRead)
@@ -424,6 +528,11 @@ export function BillingDetailPage({ kind, id }: { kind: BillingKind; id: string 
           </Link>
         }
       />
+      {actionError ? (
+        <InlineAlert tone="danger" title="Action not completed">
+          {actionError}
+        </InlineAlert>
+      ) : null}
       {requestId ? (
         <Card className="result-card">
           <div className="card-heading">
@@ -487,7 +596,11 @@ export function BillingDetailPage({ kind, id }: { kind: BillingKind; id: string 
             </div>
             <div className="detail-section">
               <div className="action-row">
-                {kind === "subscriptions" && canWrite && entityVersion !== undefined ? (
+                {kind === "refunds" ? <Badge tone="neutral">Read-only refund history</Badge> : null}
+                {kind === "subscriptions" &&
+                canWrite &&
+                entityVersion !== undefined &&
+                entity?.cancel_at_period_end !== true ? (
                   <Button
                     variant="danger-quiet"
                     icon="pause"
@@ -495,38 +608,46 @@ export function BillingDetailPage({ kind, id }: { kind: BillingKind; id: string 
                   >
                     Cancel subscription
                   </Button>
-                ) : kind === "subscriptions" && canWrite ? (
+                ) : kind === "subscriptions" &&
+                  canWrite &&
+                  entity?.cancel_at_period_end !== true ? (
                   <Badge tone="warning">Waiting for current version</Badge>
                 ) : null}
-                {kind === "payments" && canWrite ? (
+                {kind === "subscriptions" && entity?.cancel_at_period_end === true ? (
+                  <Badge tone="info">Cancellation already scheduled for period end</Badge>
+                ) : null}
+                {kind === "payments" && canCorrect ? (
                   <Button
-                    variant="danger"
+                    variant="secondary"
                     icon="arrow-up-right"
-                    onClick={() => setPendingAction("refund")}
+                    onClick={() => {
+                      setActionError(null);
+                      setPendingAction("correction");
+                    }}
                   >
-                    Issue refund
+                    Correct payment
                   </Button>
+                ) : null}
+                {kind === "payments" && !canCorrect ? (
+                  <Badge tone="neutral">Payment correction permission required</Badge>
                 ) : null}
                 {kind === "payments" && canWrite ? (
                   <Button
                     variant="secondary"
                     icon="refresh"
-                    onClick={() =>
-                      void runMutation({
-                        path: "/billing/reconcile",
-                        body: {},
-                        step_up_action: "admin:billing_reconcile",
-                      }).then((result) => setRequestId(result.request_id))
-                    }
+                    onClick={() => void reconcileBilling()}
                   >
                     Reconcile billing
                   </Button>
                 ) : null}
-                {!canWrite ? <Badge tone="neutral">Read only</Badge> : null}
+                {!canWrite && !canCorrect && kind !== "refunds" ? (
+                  <Badge tone="neutral">Read only</Badge>
+                ) : null}
               </div>
               <p className="security-note" style={{ marginTop: 14 }}>
-                The control panel never calls PayU. It waits for the sanitized local billing
-                projection and keeps request/audit evidence visible.
+                Payment corrections use the classified billing action and require
+                billing.correction, a reason, idempotency, and fresh step-up. Refund records remain
+                read-only history.
               </p>
             </div>
           </Card>
@@ -554,31 +675,38 @@ export function BillingDetailPage({ kind, id }: { kind: BillingKind; id: string 
         <ConfirmActionModal
           title="Cancel subscription"
           target={title}
-          description="Cancellation follows the billing lifecycle invariants and may queue a durable operation."
+          description="This schedules cancellation at the current period end. Immediate cancellation is not available."
           actionLabel="Cancel subscription"
           dangerous
-          moneyMoving
           expectedVersion={entityVersion}
           onConfirm={cancel}
           onClose={() => setPendingAction(null)}
         />
       ) : null}
-      {pendingAction === "refund" ? (
-        <RefundModal onConfirm={refund} onClose={() => setPendingAction(null)} />
+      {pendingAction === "correction" ? (
+        <PaymentCorrectionModal onConfirm={correctPayment} onClose={() => setPendingAction(null)} />
       ) : null}
     </>
   );
 }
 
-function RefundModal({
+function PaymentCorrectionModal({
   onConfirm,
   onClose,
 }: {
-  onConfirm: (input: { reason?: string; amount_minor?: number }) => Promise<void>;
+  onConfirm: (input: {
+    correction_class:
+      "DUPLICATE_CAPTURE" | "PROVIDER_CORRECTION" | "LEGAL_CORRECTION" | "CHARGEBACK_REVERSAL";
+    reason: string;
+    amount_minor?: number;
+  }) => Promise<void>;
   onClose: () => void;
 }) {
   const [amount, setAmount] = useState("");
   const [reason, setReason] = useState("");
+  const [correctionClass, setCorrectionClass] = useState<
+    "DUPLICATE_CAPTURE" | "PROVIDER_CORRECTION" | "LEGAL_CORRECTION" | "CHARGEBACK_REVERSAL"
+  >("DUPLICATE_CAPTURE");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const submit = async () => {
@@ -590,19 +718,22 @@ function RefundModal({
       amount &&
       (!/^\d+$/.test(amount) || !Number.isSafeInteger(Number(amount)) || Number(amount) < 1)
     ) {
-      setError("Enter a positive whole-number amount in minor units, or leave it blank.");
+      setError("Enter a positive whole-number amount in minor units, or leave the amount blank.");
       return;
     }
     setLoading(true);
     setError(null);
     try {
       await onConfirm({
+        correction_class: correctionClass,
         ...(amount ? { amount_minor: Number(amount) } : {}),
         reason: reason.trim(),
       });
-    } catch (refundError) {
+    } catch (correctionError) {
       setError(
-        refundError instanceof Error ? refundError.message : "The refund could not be completed.",
+        correctionError instanceof Error
+          ? correctionError.message
+          : "The payment correction could not be completed.",
       );
     } finally {
       setLoading(false);
@@ -612,7 +743,7 @@ function RefundModal({
     <Card className="modal-card-inline">
       <div className="card-heading">
         <div>
-          <h2>Issue refund</h2>
+          <h2>Correct payment</h2>
           <p>Money-moving action · a fresh MFA proof may be requested.</p>
         </div>
         <Badge tone="danger">Money-moving</Badge>
@@ -621,21 +752,33 @@ function RefundModal({
         <div className="danger-callout">
           <span>!</span>
           <div>
-            <strong>Review amount and reason carefully.</strong>
+            <strong>Choose the supported correction class.</strong>
             <span>
-              Refunds follow billing invariants and wait for the sanitized refund projection.
+              This records a classified billing correction and waits for the sanitized correction
+              projection.
             </span>
           </div>
         </div>
         {error ? (
-          <InlineAlert tone="danger" title="Refund not completed">
+          <InlineAlert tone="danger" title="Correction not completed">
             {error}
           </InlineAlert>
         ) : null}
         <div className="two-col-fields">
+          <Field label="Correction class">
+            <SelectInput
+              value={correctionClass}
+              onChange={(event) => setCorrectionClass(event.target.value as typeof correctionClass)}
+            >
+              <option value="DUPLICATE_CAPTURE">Duplicate capture</option>
+              <option value="PROVIDER_CORRECTION">Provider correction</option>
+              <option value="LEGAL_CORRECTION">Legal correction</option>
+              <option value="CHARGEBACK_REVERSAL">Chargeback reversal</option>
+            </SelectInput>
+          </Field>
           <Field
             label="Amount in minor units"
-            hint="Leave blank for the supported full or remaining refund behavior."
+            hint="Optional. Use only the amount covered by the classified correction."
           >
             <TextInput
               type="number"
@@ -659,7 +802,7 @@ function RefundModal({
             Cancel
           </Button>
           <Button variant="danger" onClick={() => void submit()} loading={loading}>
-            Confirm refund
+            Submit correction
           </Button>
         </div>
       </div>
