@@ -17,6 +17,14 @@ export type AdminPermission =
   | "quotas.write"
   | "system.read"
   | "system.write"
+  | "deploy.read"
+  | "deploy.write"
+  | "runtime.restart"
+  | "config.read"
+  | "config.write"
+  | "secrets.read"
+  | "secrets.write"
+  | "secrets.reveal"
   | "billing.read"
   | "billing.write"
   | "billing.correction"
@@ -302,6 +310,132 @@ export interface ActiveProductCatalogue {
 
 export interface AdminRecord {
   [key: string]: unknown;
+}
+
+export interface DeploymentOperation {
+  id: string;
+  kind: "DEPLOY" | "ROLLBACK" | "RESTART";
+  state: string;
+  current_step: string;
+  candidate_sha?: string;
+  candidate_short_sha?: string;
+  commit_title?: string;
+  release_id?: string;
+  release_directory?: string;
+  target_release_id?: string;
+  previous_release_id?: string | null;
+  previous_commit: string | null;
+  resulting_active_revision: string | null;
+  requested_at: string;
+  started_at?: string;
+  finished_at?: string;
+  requested_by: string;
+  reason: string;
+  failure_stage?: string;
+  safe_error: string | null;
+  rollback_state: string | null;
+  steps: Record<string, string>;
+  logs_truncated?: boolean;
+}
+
+export interface RuntimeStatus {
+  active: { release_id: string; commit_sha: string; built_at: string; branch: string } | null;
+  pm2: { status: string; pid: number; uptime_ms: number | null };
+  readiness: string;
+  serving_commit: string | null;
+  revision_matches_active: boolean;
+  active_operation: DeploymentOperation | null;
+}
+
+export interface DeploymentPreview {
+  current: { release_id: string; commit_sha: string; built_at: string; branch: string } | null;
+  candidate_sha: string;
+  candidate_title: string;
+  branch: string;
+  ahead: number | null;
+  diverged: boolean;
+  commits: { sha: string; title: string; author: string; committed_at: string }[];
+  checked_at: string;
+}
+
+export interface DeploymentLogLine {
+  at: string;
+  phase: string;
+  stream: string;
+  text: string;
+}
+export interface RuntimeConfigView {
+  entries: { key: string; value: string | null; editable: boolean; masked: boolean }[];
+  editable_keys: string[];
+  saved_revision: string;
+  running_revision: string;
+  restart_required: boolean;
+}
+export interface SecretSummary {
+  name: string;
+  updated_at: string;
+  size_bytes: number;
+}
+
+export interface OperationAccepted {
+  operation_id: string;
+  state: string;
+}
+export interface DeploymentRequestBody {
+  candidate_sha: string;
+  reason: string;
+}
+export interface DeploymentRollbackBody {
+  target_release_id: string;
+  confirmation: "ROLLBACK";
+  reason: string;
+}
+export interface DeploymentCancelBody {
+  reason: string;
+}
+export interface ConfigChange {
+  key: string;
+  value: string | null;
+}
+export interface ConfigValidateBody {
+  changes: ConfigChange[];
+}
+export interface ConfigValidationResult {
+  valid: boolean;
+  issues: string[];
+}
+export interface ConfigSaveBody extends ConfigValidateBody {
+  expected_revision: string;
+  reason: string;
+}
+export interface ConfigRevertBody {
+  expected_revision: string;
+  reason: string;
+}
+export interface ConfigSaveResult {
+  saved_revision: string;
+  running_revision: string;
+  restart_required: boolean;
+}
+export interface SecretCreateBody {
+  name: string;
+  value: string;
+  reason: string;
+}
+export interface SecretReplaceBody {
+  value: string;
+  reason: string;
+}
+export interface SecretReasonBody {
+  reason: string;
+}
+export interface SecretWriteResult {
+  name: string;
+  restart_required: boolean;
+}
+export interface SecretRevealResult {
+  name: string;
+  value: string;
 }
 
 export interface AdminSuccessEnvelope<T> {

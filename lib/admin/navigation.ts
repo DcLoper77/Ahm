@@ -135,6 +135,34 @@ export const NAV_SECTIONS: NavSection[] = [
     label: "Control",
     items: [
       {
+        href: "/deploy",
+        label: "Deploy",
+        description: "Releases, revisions, and rollback",
+        icon: "arrow-up-right",
+        permissions: ["deploy.read"],
+      },
+      {
+        href: "/system/config",
+        label: "Configuration",
+        description: "Validated runtime settings",
+        icon: "sliders",
+        permissions: ["config.read"],
+      },
+      {
+        href: "/system/secrets",
+        label: "Secret files",
+        description: "Managed service credentials",
+        icon: "lock",
+        permissions: ["secrets.read"],
+      },
+      {
+        href: "/system/runtime",
+        label: "Runtime",
+        description: "PM2 status and restart",
+        icon: "pulse",
+        permissions: ["deploy.read"],
+      },
+      {
         href: "/admins",
         label: "Administrators",
         description: "Roles, invitations, and status",

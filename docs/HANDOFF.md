@@ -3,6 +3,44 @@
 Entries are newest first. Backend contract/implementation evidence is maintained in the sibling
 repository `D:\API - Havenerr`; this continuation was explicitly approved to update both repositories.
 
+## 2026-09-24 - Codex - M26 operator UI completion
+
+The user assigned completion of the remaining operator frontend to this continuation and requested
+separate commits/pushes for both repositories when all work is done. Local UI implementation and
+verification are complete; no live API session or production deployment was performed. M26 remains
+open pending the backend's controlled Linux/PM2/Bubblewrap and secret-isolation rehearsal.
+
+Added the complete Deploy, System Configuration, Secret Files, and Runtime pages. The deploy flow
+reviews the exact SHA and reason, confirms explicitly, polls durable progress/history/log offsets,
+reconnects without overlapping log pages, requests safe cancellation, and requires typed confirmation
+for manual rollback. Config uses the backend editable-key allowlist and supports validate/save/revert.
+Secrets support create/replace/delete/revert and fresh-MFA reveal; the revealed value stays in local
+component state, clears after 30 seconds or page hide, and is not put in TanStack Query, localStorage,
+or sessionStorage. Restart polls readiness and reconnects. API request/response types and request
+factories match the registered backend route patterns; all mutations use the existing
+`useAdminSession().runMutation` idempotency/step-up flow. Contract matrix and unit/e2e coverage were
+updated. Next 16 production build generated the `next-env.d.ts` route type reference update.
+
+Changed task files: `app/(console)/deploy/page.tsx`, `app/(console)/system/{config,secrets,runtime}/page.tsx`,
+`app/globals.css`, `components/auth/session-context.tsx`, `components/deployment-pages.tsx`,
+`components/deployment-pages.test.tsx`, `lib/admin/{api.ts,api.test.ts,types.ts,navigation.ts}`,
+`e2e/admin-console.spec.ts`, `docs/ADMIN_API_CONTRACT_MATRIX.md`, `docs/PROGRESS.md`, and this
+handoff. The unrelated pre-existing `.env.example` edit was preserved and will not be included in
+the task commit.
+
+Verification on Windows / Node 24.11.1, 2026-09-24:
+
+- `npm.cmd run typecheck`, `npm.cmd run lint`, `npm.cmd run format:check` — passed.
+- `npm.cmd run build` with `HAVENERR_ADMIN_UPSTREAM_ORIGIN=http://127.0.0.1:5000` — passed; routes
+  `/deploy`, `/system/config`, `/system/runtime`, and `/system/secrets` were generated.
+- `npm.cmd test` — 9 files / 33 tests passed.
+- `npm.cmd run test:e2e` — 36 desktop/mobile Playwright tests passed, including operation reconnect,
+  manual rollback, config validation/save, transient reveal, and restart/readiness reconnect.
+
+The build uses a local loopback proxy origin only. Browser tests use mocks, and no real Admin
+credentials, Vercel preview, production API, or Linux host was available. Backend-specific runbook,
+worker tests, and exact live gate status are recorded in `D:\API - Havenerr\HANDOFF.md`.
+
 ## 2026-09-24 - Codex - dedicated Admin plane reconciliation
 
 Status: frontend implementation and local verification complete and accepted for backend

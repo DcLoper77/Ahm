@@ -1,5 +1,25 @@
 # Havenerr Admin Control Panel progress
 
+## 2026-09-24 M26 operator controls — local implementation complete; host gate open
+
+The user assigned the remaining operator Dashboard work to this continuation. The Deploy, System
+Configuration, Secret Files, and Runtime pages now use typed APIs over the existing same-origin
+`/admin/v1` proxy and `useAdminSession().runMutation` flow. Deployment includes exact-SHA review,
+confirmation, progress, history, incremental logs, reconnect, cancellation, and typed manual
+rollback. Config includes allowlisted edits, validation, save/revert, and restart-required status.
+Secrets include create/replace/delete/revert plus a fresh-MFA transient reveal held only in component
+state; it clears after 30 seconds or when the page becomes hidden. Runtime restart reconnects and
+reports readiness. Updated the Admin API contract matrix and added unit/browser coverage. Next 16
+generated the current route-type reference in `next-env.d.ts` during production build.
+
+Verification on Windows, 2026-09-24: `npm.cmd run typecheck`, `npm.cmd run lint`,
+`npm.cmd run format:check`, `npm.cmd run build` with
+`HAVENERR_ADMIN_UPSTREAM_ORIGIN=http://127.0.0.1:5000`, `npm.cmd test` (9 files / 33 tests), and
+`npm.cmd run test:e2e` (36 desktop/mobile tests) passed. Browser tests use local mock fixtures. No
+live Admin session, deployed Dashboard, Vercel preview, or controlled Linux worker/PM2 rehearsal was
+available. M26 remains open until the sibling backend's controlled-host and secret-isolation gates
+pass. The pre-existing `.env.example` edit was preserved and is excluded from the task commit.
+
 ## Released claim — 2026-09-24
 
 Owner: `/root/frontend` (released after frontend work and cross-repository contract review). The

@@ -25,6 +25,22 @@ import type {
   TierAssignmentBody,
   TierAssignmentSummary,
   TierRevision,
+  DeploymentOperation,
+  DeploymentPreview,
+  DeploymentLogLine,
+  RuntimeStatus,
+  RuntimeConfigView,
+  SecretSummary,
+  MutationInput,
+  DeploymentRequestBody,
+  DeploymentRollbackBody,
+  DeploymentCancelBody,
+  ConfigValidateBody,
+  ConfigSaveBody,
+  ConfigRevertBody,
+  SecretCreateBody,
+  SecretReplaceBody,
+  SecretReasonBody,
 } from "./types";
 import { encodeSegment } from "./client";
 
@@ -62,6 +78,19 @@ export interface AdminAuthApi {
 }
 
 export interface AdminResourceApi {
+  operations: {
+    status(): Promise<ApiResult<RuntimeStatus>>;
+    runtime(): Promise<ApiResult<RuntimeStatus>>;
+    remote(): Promise<ApiResult<DeploymentPreview>>;
+    history(): Promise<ApiResult<{ deployments: DeploymentOperation[] }>>;
+    detail(id: string): Promise<ApiResult<DeploymentOperation>>;
+    logs(
+      id: string,
+      after: number,
+    ): Promise<ApiResult<{ lines: DeploymentLogLine[]; next_offset: number }>>;
+    config(): Promise<ApiResult<RuntimeConfigView>>;
+    secrets(): Promise<ApiResult<{ secrets: SecretSummary[] }>>;
+  };
   admins: {
     list(): Promise<ApiResult<{ admins: AdminUserSummary[] }>>;
     invite(
@@ -276,6 +305,98 @@ export interface AdminResourceApi {
   };
 }
 
+/** Fixed operation paths and request bodies; callers still send them through runMutation so
+ * CSRF, idempotency, retries, and MFA step-up remain owned by the session boundary. */
+export const operationMutations = {
+  deploy: (body: DeploymentRequestBody) =>
+    ({
+      method: "POST",
+      path: "/deployments",
+      body,
+      step_up_action: "admin:deploy",
+    }) satisfies MutationInput<DeploymentRequestBody>,
+  rollback: (releaseId: string, reason: string) =>
+    ({
+      method: "POST",
+      path: `/deployments/${encodeSegment(releaseId)}:rollback`,
+      body: {
+        target_release_id: releaseId,
+        confirmation: "ROLLBACK",
+        reason,
+      } satisfies DeploymentRollbackBody,
+      step_up_action: "admin:rollback",
+    }) satisfies MutationInput<DeploymentRollbackBody>,
+  cancel: (id: string, reason: string) =>
+    ({
+      method: "POST",
+      path: `/deployments/${encodeSegment(id)}:cancel`,
+      body: { reason } satisfies DeploymentCancelBody,
+      step_up_action: "admin:deploy_cancel",
+    }) satisfies MutationInput<DeploymentCancelBody>,
+  restart: (reason: string) =>
+    ({
+      method: "POST",
+      path: "/system/runtime:restart",
+      body: { reason } satisfies SecretReasonBody,
+      step_up_action: "admin:restart",
+    }) satisfies MutationInput<SecretReasonBody>,
+  validateConfig: (body: ConfigValidateBody) =>
+    ({
+      method: "POST",
+      path: "/system/config/validate",
+      body,
+    }) satisfies MutationInput<ConfigValidateBody>,
+  saveConfig: (body: ConfigSaveBody) =>
+    ({
+      method: "PUT",
+      path: "/system/config",
+      body,
+      step_up_action: "admin:config",
+    }) satisfies MutationInput<ConfigSaveBody>,
+  revertConfig: (body: ConfigRevertBody) =>
+    ({
+      method: "POST",
+      path: "/system/config/revert",
+      body,
+      step_up_action: "admin:config_revert",
+    }) satisfies MutationInput<ConfigRevertBody>,
+  createSecret: (body: SecretCreateBody) =>
+    ({
+      method: "POST",
+      path: "/system/secrets",
+      body,
+      step_up_action: "admin:secret_write",
+    }) satisfies MutationInput<SecretCreateBody>,
+  replaceSecret: (name: string, body: SecretReplaceBody) =>
+    ({
+      method: "PUT",
+      path: `/system/secrets/${encodeSegment(name)}`,
+      body,
+      step_up_action: "admin:secret_write",
+    }) satisfies MutationInput<SecretReplaceBody>,
+  deleteSecret: (name: string, body: SecretReasonBody) =>
+    ({
+      method: "DELETE",
+      path: `/system/secrets/${encodeSegment(name)}`,
+      body,
+      step_up_action: "admin:secret_delete",
+    }) satisfies MutationInput<SecretReasonBody>,
+  revertSecret: (name: string, body: SecretReasonBody) =>
+    ({
+      method: "POST",
+      path: `/system/secrets/${encodeSegment(name)}:revert`,
+      body,
+      step_up_action: "admin:secret_revert",
+    }) satisfies MutationInput<SecretReasonBody>,
+  revealSecret: (name: string, body: SecretReasonBody) =>
+    ({
+      method: "POST",
+      path: `/system/secrets/${encodeSegment(name)}:reveal`,
+      body,
+      step_up_action: "admin:secret_reveal",
+    }) satisfies MutationInput<SecretReasonBody>,
+};
+
 function actionPath(prefix: string, id: string, action: string): string {
   return `${prefix}/${encodeSegment(id)}:${action}`;
 }
@@ -351,6 +472,20 @@ export function createAdminApi(client: AdminApiClient): AdminAuthApi & AdminReso
   };
 
   const resources: AdminResourceApi = {
+    operations: {
+      status: () => client.get<RuntimeStatus>("/deploy/status"),
+      runtime: () => client.get<RuntimeStatus>("/system/runtime"),
+      remote: () => client.get("/deploy/remote"),
+      history: () => client.get<{ deployments: DeploymentOperation[] }>("/deploy/history"),
+      detail: (id) => client.get<DeploymentOperation>(`/deploy/history/${encodeSegment(id)}`),
+      logs: (id, after) =>
+        client.get<{ lines: DeploymentLogLine[]; next_offset: number }>(
+          `/deploy/history/${encodeSegment(id)}/logs`,
+          { after },
+        ),
+      config: () => client.get<RuntimeConfigView>("/system/config"),
+      secrets: () => client.get<{ secrets: SecretSummary[] }>("/system/secrets"),
+    },
     admins: {
       list: () => client.get<{ admins: AdminUserSummary[] }>("/admins"),
       invite: (body, key) =>

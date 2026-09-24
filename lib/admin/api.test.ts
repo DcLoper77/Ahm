@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AdminApiClient } from "./client";
-import { createAdminApi } from "./api";
+import { createAdminApi, operationMutations } from "./api";
 
 function success(data: unknown = {}) {
   return new Response(JSON.stringify({ success: true, data, request_id: "req_api_test" }), {
@@ -367,8 +367,57 @@ describe("supported Admin plane route construction", () => {
     expect(api).not.toHaveProperty("hosting");
     expect(api).not.toHaveProperty("domains");
     expect(api).not.toHaveProperty("vps");
+    // Havenerr itself is deployed only through the dedicated typed operation contracts below;
+    // customer application deployments and retired hosting control remain unsupported.
     expect(calls.map(([input]) => String(input)).join("\n")).not.toMatch(
-      /\/admin\/v1\/(hosting|domains|deployments|infrastructure\/vps|system\/workers)(\/|\?|$)/,
+      /\/admin\/v1\/(hosting|domains|infrastructure\/vps|system\/workers)(\/|\?|$)/,
     );
+  });
+});
+
+describe("operator mutation contracts", () => {
+  it("uses fixed same-origin operation paths with typed bodies and step-up actions", () => {
+    expect(
+      operationMutations.deploy({
+        candidate_sha: "a".repeat(40),
+        reason: "Deploy reviewed revision",
+      }),
+    ).toMatchObject({
+      method: "POST",
+      path: "/deployments",
+      body: { candidate_sha: "a".repeat(40) },
+      step_up_action: "admin:deploy",
+    });
+    expect(
+      operationMutations.rollback("dpl_01J80000000000000000000000", "Restore known good release"),
+    ).toMatchObject({
+      method: "POST",
+      path: "/deployments/dpl_01J80000000000000000000000:rollback",
+      body: { target_release_id: "dpl_01J80000000000000000000000", confirmation: "ROLLBACK" },
+      step_up_action: "admin:rollback",
+    });
+    expect(
+      operationMutations.cancel("dpl_01J80000000000000000000000", "Stop before activation").path,
+    ).toBe("/deployments/dpl_01J80000000000000000000000:cancel");
+    expect(operationMutations.restart("Apply reviewed runtime settings")).toMatchObject({
+      method: "POST",
+      path: "/system/runtime:restart",
+      step_up_action: "admin:restart",
+    });
+    expect(
+      operationMutations.saveConfig({
+        changes: [{ key: "LOG_LEVEL", value: "debug" }],
+        expected_revision: "b".repeat(64),
+        reason: "Reduce production log volume",
+      }).method,
+    ).toBe("PUT");
+    expect(
+      operationMutations.deleteSecret("api key", { reason: "Remove expired API credential" }).path,
+    ).toBe("/system/secrets/api%20key");
+    expect(
+      operationMutations.revealSecret("provider-token", {
+        reason: "Inspect credential after rotation",
+      }).path,
+    ).toBe("/system/secrets/provider-token:reveal");
   });
 });

@@ -43,10 +43,50 @@ async function mockAdminApi(
       body: Record<string, unknown>;
       headers: Record<string, string>;
     }[],
+    deploymentRequests: [] as {
+      path: string;
+      body: Record<string, unknown>;
+      headers: Record<string, string>;
+    }[],
+    configRequests: [] as {
+      path: string;
+      method: string;
+      body: Record<string, unknown>;
+      headers: Record<string, string>;
+    }[],
+    secretRequests: [] as {
+      path: string;
+      method: string;
+      body: Record<string, unknown>;
+      headers: Record<string, string>;
+    }[],
+    restartRequests: [] as { body: Record<string, unknown>; headers: Record<string, string> }[],
+    deploymentOperation: null as Record<string, unknown> | null,
+    restartOperation: null as Record<string, unknown> | null,
+    configValue: "info",
+    savedConfigRevision: "c".repeat(64),
+    runtimeFlaps: 0,
+    logRequests: [] as number[],
   };
   const feedbackMessage = options.longFeedback
     ? `<script>not executable</script>${"x".repeat(1940)}`
     : "The main website is clear and easy to use.";
+  const previousDeployment = {
+    id: "dpl_previous_e2e",
+    release_id: "dpl_previous_e2e",
+    kind: "DEPLOY",
+    state: "SUCCEEDED",
+    current_step: "SUCCEEDED",
+    candidate_sha: "a".repeat(40),
+    previous_commit: "9".repeat(40),
+    resulting_active_revision: "a".repeat(40),
+    requested_at: "2026-09-23T10:00:00.000Z",
+    requested_by: "adm_e2e",
+    reason: "Previously verified production release",
+    safe_error: null,
+    rollback_state: null,
+    steps: { SUCCEEDED: "2026-09-23T10:03:00.000Z" },
+  };
   await page
     .context()
     .addCookies([{ name: "hv_admin_csrf", value: "browser-csrf", domain: "localhost", path: "/" }]);
@@ -115,6 +155,255 @@ async function mockAdminApi(
     }
     if (!state.authenticated) return fulfill(401, errorEnvelope("ADMIN_SESSION_EXPIRED"));
     if (method !== "GET") state.mutationHeaders.push(headers);
+    const activeRelease = {
+      release_id: "dpl_current_e2e",
+      commit_sha: "a".repeat(40),
+      built_at: "2026-09-24T10:00:00.000Z",
+      branch: "main",
+    };
+    if (path === "/admin/v1/deploy/status" && method === "GET") {
+      return fulfill(
+        200,
+        envelope({
+          active: activeRelease,
+          pm2: { status: "online", pid: 5000, uptime_ms: 120000 },
+          readiness: "ready",
+          serving_commit: activeRelease.commit_sha,
+          revision_matches_active: true,
+          active_operation: state.deploymentOperation,
+        }),
+      );
+    }
+    if (path === "/admin/v1/deploy/remote" && method === "GET") {
+      return fulfill(
+        200,
+        envelope({
+          current: activeRelease,
+          candidate_sha: "b".repeat(40),
+          candidate_title: "Add operator control improvements",
+          branch: "main",
+          ahead: 1,
+          diverged: false,
+          commits: [
+            {
+              sha: "b".repeat(40),
+              title: "Add operator control improvements",
+              author: "Fixture operator",
+              committed_at: "2026-09-24T11:00:00.000Z",
+            },
+          ],
+          checked_at: "2026-09-24T11:00:00.000Z",
+        }),
+      );
+    }
+    if (path === "/admin/v1/deploy/history" && method === "GET") {
+      return fulfill(
+        200,
+        envelope({
+          deployments: [
+            state.deploymentOperation,
+            state.restartOperation,
+            previousDeployment,
+          ].filter(Boolean),
+        }),
+      );
+    }
+    const logMatch = path.match(/^\/admin\/v1\/deploy\/history\/([^/]+)\/logs$/);
+    if (logMatch && method === "GET") {
+      const offset = Number(url.searchParams.get("after") ?? "0");
+      state.logRequests.push(offset);
+      return fulfill(
+        200,
+        envelope({
+          lines:
+            offset === 0
+              ? [
+                  {
+                    at: "2026-09-24T11:00:00.000Z",
+                    phase: "BUILDING",
+                    stream: "stdout",
+                    text: "Candidate build passed.",
+                  },
+                ]
+              : [],
+          next_offset: 100,
+        }),
+      );
+    }
+    const detailMatch = path.match(/^\/admin\/v1\/deploy\/history\/([^/]+)$/);
+    if (detailMatch && method === "GET") {
+      const operation = [
+        state.deploymentOperation,
+        state.restartOperation,
+        previousDeployment,
+      ].find((item) => item?.id === detailMatch[1]);
+      return operation
+        ? fulfill(200, envelope(operation))
+        : fulfill(404, errorEnvelope("DEPLOYMENT_NOT_FOUND"));
+    }
+    if (path === "/admin/v1/deployments" && method === "POST") {
+      const body = JSON.parse(request.postData() ?? "{}") as Record<string, unknown>;
+      state.deploymentRequests.push({ path, body, headers });
+      state.deploymentOperation = {
+        id: "dpl_deploy_e2e",
+        kind: "DEPLOY",
+        state: "BUILDING",
+        current_step: "BUILDING",
+        candidate_sha: body.candidate_sha,
+        candidate_short_sha: String(body.candidate_sha).slice(0, 12),
+        previous_commit: activeRelease.commit_sha,
+        resulting_active_revision: null,
+        requested_at: "2026-09-24T11:00:00.000Z",
+        started_at: "2026-09-24T11:00:01.000Z",
+        requested_by: "adm_e2e",
+        reason: body.reason,
+        failure_stage: null,
+        safe_error: null,
+        rollback_state: null,
+        steps: {
+          FETCHING: "2026-09-24T11:00:01.000Z",
+          PREPARING: "2026-09-24T11:00:02.000Z",
+          BUILDING: "2026-09-24T11:00:03.000Z",
+        },
+      };
+      return fulfill(202, envelope({ operation_id: "dpl_deploy_e2e", state: "QUEUED" }));
+    }
+    if (path.startsWith("/admin/v1/deployments/") && method === "POST") {
+      const body = JSON.parse(request.postData() ?? "{}") as Record<string, unknown>;
+      state.deploymentRequests.push({ path, body, headers });
+      if (path.endsWith(":rollback")) {
+        state.deploymentOperation = {
+          id: "dpl_rollback_e2e",
+          kind: "ROLLBACK",
+          state: "QUEUED",
+          current_step: "QUEUED",
+          candidate_sha: "a".repeat(40),
+          previous_commit: "b".repeat(40),
+          resulting_active_revision: null,
+          requested_at: "2026-09-24T11:01:00.000Z",
+          requested_by: "adm_e2e",
+          reason: body.reason,
+          safe_error: null,
+          rollback_state: null,
+          steps: {},
+        };
+        return fulfill(202, envelope({ operation_id: "dpl_rollback_e2e", state: "QUEUED" }));
+      }
+      return fulfill(
+        200,
+        envelope({ operation_id: "dpl_deploy_e2e", cancellation_requested: true }),
+      );
+    }
+    if (path === "/admin/v1/system/runtime" && method === "GET") {
+      if (state.runtimeFlaps > 0) {
+        state.runtimeFlaps -= 1;
+        return fulfill(503, errorEnvelope("DEPENDENCY_UNAVAILABLE", true));
+      }
+      if (state.restartOperation) {
+        state.restartOperation.state = "SUCCEEDED";
+        state.restartOperation.current_step = "SUCCEEDED";
+        state.restartOperation.resulting_active_revision = activeRelease.commit_sha;
+        state.restartOperation.finished_at = "2026-09-24T11:02:00.000Z";
+      }
+      return fulfill(
+        200,
+        envelope({
+          active: activeRelease,
+          pm2: { status: "online", pid: 5000, uptime_ms: 1000 },
+          readiness: "ready",
+          serving_commit: activeRelease.commit_sha,
+          revision_matches_active: true,
+          active_operation: null,
+        }),
+      );
+    }
+    if (path === "/admin/v1/system/runtime:restart" && method === "POST") {
+      const body = JSON.parse(request.postData() ?? "{}") as Record<string, unknown>;
+      state.restartRequests.push({ body, headers });
+      state.runtimeFlaps = 2;
+      state.restartOperation = {
+        id: "dpl_restart_e2e",
+        kind: "RESTART",
+        state: "RESTARTING",
+        current_step: "RESTARTING",
+        previous_commit: activeRelease.commit_sha,
+        resulting_active_revision: null,
+        requested_at: "2026-09-24T11:01:00.000Z",
+        requested_by: "adm_e2e",
+        reason: body.reason,
+        safe_error: null,
+        rollback_state: null,
+        steps: { RESTARTING: "2026-09-24T11:01:00.000Z" },
+      };
+      return fulfill(202, envelope({ operation_id: "dpl_restart_e2e", state: "QUEUED" }));
+    }
+    if (path === "/admin/v1/system/config" && method === "GET") {
+      return fulfill(
+        200,
+        envelope({
+          entries: [
+            { key: "LOG_LEVEL", value: state.configValue, editable: true, masked: false },
+            { key: "DUNESBIT_PROJECT_API_KEY", value: null, editable: false, masked: true },
+          ],
+          editable_keys: ["LOG_LEVEL", "HOST"],
+          saved_revision: state.savedConfigRevision,
+          running_revision: "c".repeat(64),
+          restart_required: state.savedConfigRevision !== "c".repeat(64),
+        }),
+      );
+    }
+    if (path === "/admin/v1/system/config/validate" && method === "POST") {
+      const body = JSON.parse(request.postData() ?? "{}") as Record<string, unknown>;
+      state.configRequests.push({ path, method, body, headers });
+      return fulfill(200, envelope({ valid: true, issues: [] }));
+    }
+    if (path === "/admin/v1/system/config" && method === "PUT") {
+      const body = JSON.parse(request.postData() ?? "{}") as Record<string, unknown>;
+      state.configRequests.push({ path, method, body, headers });
+      const changes = body.changes as Array<{ key: string; value: string | null }>;
+      state.configValue =
+        changes.find((change) => change.key === "LOG_LEVEL")?.value ?? state.configValue;
+      state.savedConfigRevision = "d".repeat(64);
+      return fulfill(
+        200,
+        envelope({
+          saved_revision: state.savedConfigRevision,
+          running_revision: "c".repeat(64),
+          restart_required: true,
+        }),
+      );
+    }
+    if (path === "/admin/v1/system/config/revert" && method === "POST") {
+      const body = JSON.parse(request.postData() ?? "{}") as Record<string, unknown>;
+      state.configRequests.push({ path, method, body, headers });
+      state.configValue = "info";
+      state.savedConfigRevision = "e".repeat(64);
+      return fulfill(
+        200,
+        envelope({
+          saved_revision: state.savedConfigRevision,
+          running_revision: "c".repeat(64),
+          restart_required: true,
+        }),
+      );
+    }
+    if (path === "/admin/v1/system/secrets" && method === "GET") {
+      return fulfill(
+        200,
+        envelope({
+          secrets: [
+            { name: "database-password", updated_at: "2026-09-24T10:00:00.000Z", size_bytes: 32 },
+          ],
+        }),
+      );
+    }
+    if (path.startsWith("/admin/v1/system/secrets") && method !== "GET") {
+      const body = JSON.parse(request.postData() ?? "{}") as Record<string, unknown>;
+      state.secretRequests.push({ path, method, body, headers });
+      if (path.endsWith(":reveal"))
+        return fulfill(200, envelope({ name: "database-password", value: "secret-reveal-e2e" }));
+      return fulfill(200, envelope({ name: "database-password", restart_required: true }));
+    }
     if (path.endsWith("/usage"))
       return fulfill(
         200,
@@ -629,6 +918,133 @@ test("customer detail assigns a published custom tier only to an owned organizat
   });
   expect(state.tierAssignmentRequests[0]?.headers["idempotency-key"]).toMatch(/^admin_/);
   expect(state.tierAssignmentRequests[0]?.headers["x-csrf-token"]).toBe("browser-csrf");
+});
+
+test("deployment confirmation, progress, logs, and refresh use the durable operation journal", async ({
+  page,
+}) => {
+  const state = await mockAdminApi(page);
+  await signIn(page);
+  await page.goto("/deploy");
+  await expect(page.getByRole("heading", { name: "Deploy Havenerr" })).toBeVisible();
+  const deploy = page.getByRole("button", { name: "Deploy bbbbbbbbbbbb", exact: true }).first();
+  await expect(deploy).toBeEnabled();
+  await deploy.click();
+
+  const confirmation = page.getByRole("dialog", { name: "Deploy reviewed commit" });
+  await expect(confirmation).toBeVisible();
+  await expect(confirmation.getByLabel("Exact target")).toHaveValue(/a{40} → b{40}/);
+  await confirmation.getByLabel("Reason").fill("Deploy reviewed operator release");
+  await confirmation.getByRole("button", { name: "Deploy bbbbbbbbbbbb", exact: true }).click();
+
+  await expect(page.getByRole("heading", { name: "Operation dpl_deploy_e2e" })).toBeVisible();
+  await expect(page.getByText("Build and run tests")).toBeVisible();
+  await expect(page.getByText("Candidate build passed.")).toBeVisible();
+  expect(state.deploymentRequests[0]?.path).toBe("/admin/v1/deployments");
+  expect(state.deploymentRequests[0]?.body).toEqual({
+    candidate_sha: "b".repeat(40),
+    reason: "Deploy reviewed operator release",
+  });
+  expect(state.deploymentRequests[0]?.headers["x-csrf-token"]).toBe("browser-csrf");
+  expect(state.deploymentRequests[0]?.headers["idempotency-key"]).toMatch(/^admin_/);
+
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Operation dpl_deploy_e2e" })).toBeVisible();
+  await expect(page.getByText("Candidate build passed.")).toBeVisible();
+});
+
+test("manual rollback requires typed confirmation and targets a retained release", async ({
+  page,
+}) => {
+  const state = await mockAdminApi(page);
+  await signIn(page);
+  await page.goto("/deploy");
+  const rollback = page.getByRole("button", { name: "Roll back to aaaaaaaaaaaa" });
+  await expect(rollback).toBeVisible();
+  await rollback.click();
+  await page.getByLabel("Type ROLLBACK to continue").fill("ROLLBACK");
+  await page
+    .getByLabel("Reason", { exact: true })
+    .last()
+    .fill("Restore previously verified release");
+  await page.getByRole("button", { name: "Request rollback" }).click();
+  await expect(page.getByRole("heading", { name: "Operation dpl_rollback_e2e" })).toBeVisible();
+  expect(state.deploymentRequests[0]?.path).toBe("/admin/v1/deployments/dpl_previous_e2e:rollback");
+  expect(state.deploymentRequests[0]?.body).toEqual({
+    target_release_id: "dpl_previous_e2e",
+    confirmation: "ROLLBACK",
+    reason: "Restore previously verified release",
+  });
+});
+
+test("configuration validation and save use typed allowlisted changes", async ({ page }) => {
+  const state = await mockAdminApi(page);
+  await signIn(page);
+  await page.goto("/system/config");
+  await expect(page.getByRole("heading", { name: "Runtime configuration" })).toBeVisible();
+  await expect(page.getByText("Masked", { exact: true })).toBeVisible();
+  await expect(page.getByText("db_live_fixture_secret_4422")).toHaveCount(0);
+  await page.getByLabel("LOG_LEVEL").fill("debug");
+  await page.getByRole("button", { name: "Validate candidate" }).click();
+  await expect(page.getByText("Candidate configuration passed validation.")).toBeVisible();
+  await page.getByLabel("Save reason").fill("Reduce log volume during investigation");
+  await page.getByRole("button", { name: "Save configuration" }).click();
+  await expect(page.getByText("Restart required", { exact: false })).toBeVisible();
+  expect(state.configRequests.map((request) => request.path)).toEqual([
+    "/admin/v1/system/config/validate",
+    "/admin/v1/system/config",
+  ]);
+  expect(state.configRequests[0]?.body).toEqual({
+    changes: [{ key: "LOG_LEVEL", value: "debug" }],
+  });
+  expect(state.configRequests[1]?.method).toBe("PUT");
+  expect(state.configRequests[1]?.body).toMatchObject({
+    changes: [{ key: "LOG_LEVEL", value: "debug" }],
+    expected_revision: "c".repeat(64),
+    reason: "Reduce log volume during investigation",
+  });
+  expect(state.configRequests[1]?.headers["idempotency-key"]).toMatch(/^admin_/);
+});
+
+test("secret reveal is a separate transient action and does not include the value in its request", async ({
+  page,
+}) => {
+  const state = await mockAdminApi(page);
+  await signIn(page);
+  await page.goto("/system/secrets");
+  await expect(page.getByRole("heading", { name: "Secret files" })).toBeVisible();
+  await expect(page.getByText("secret-reveal-e2e")).toHaveCount(0);
+  await page.getByRole("button", { name: "Reveal once" }).first().click();
+  await page.getByLabel("Reason", { exact: true }).fill("Inspect credential after rotation");
+  await page.getByRole("button", { name: "Reveal once" }).last().click();
+  await expect(page.getByText("secret-reveal-e2e")).toBeVisible();
+  expect(state.secretRequests[0]?.path).toBe("/admin/v1/system/secrets/database-password:reveal");
+  expect(state.secretRequests[0]?.body).toEqual({ reason: "Inspect credential after rotation" });
+  expect(JSON.stringify(state.secretRequests[0]?.body)).not.toContain("secret-reveal-e2e");
+  await page.getByRole("button", { name: "Hide now" }).click();
+  await expect(page.getByText("secret-reveal-e2e")).toHaveCount(0);
+});
+
+test("runtime restart reconnects and reports success only after readiness returns", async ({
+  page,
+}) => {
+  const state = await mockAdminApi(page);
+  await signIn(page);
+  await page.goto("/system/runtime");
+  await expect(page.getByRole("heading", { name: "Runtime and restart" })).toBeVisible();
+  await page.getByRole("button", { name: "Restart backend" }).click();
+  const dialog = page.getByRole("dialog", { name: "Restart Havenerr backend" });
+  await dialog.getByLabel("Reason").fill("Apply reviewed runtime configuration");
+  await dialog.getByRole("button", { name: "Queue restart" }).click();
+  await expect(page.getByText(/Waiting for the API to reconnect/)).toBeVisible();
+  await expect(page.getByText(/Restart completed\. Readiness is restored/)).toBeVisible({
+    timeout: 15000,
+  });
+  expect(state.restartRequests).toHaveLength(1);
+  expect(state.restartRequests[0]?.body).toEqual({
+    reason: "Apply reviewed runtime configuration",
+  });
+  expect(state.restartRequests[0]?.headers["idempotency-key"]).toMatch(/^admin_/);
 });
 
 test("security headers protect the control-panel document", async ({ request }) => {

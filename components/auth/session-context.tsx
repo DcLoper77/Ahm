@@ -53,7 +53,7 @@ interface AdminSessionContextValue {
   refreshSession: () => Promise<void>;
   retrySession: () => Promise<void>;
   refreshMe: () => Promise<AdminMe | null>;
-  runMutation: <T>(input: MutationInput) => Promise<ApiResult<T>>;
+  runMutation: <T, TBody = unknown>(input: MutationInput<TBody>) => Promise<ApiResult<T>>;
   dismissNotice: () => void;
 }
 
@@ -77,7 +77,7 @@ function stableValue(value: unknown): string {
   return JSON.stringify(value) ?? "null";
 }
 
-async function mutationFingerprint(input: MutationInput): Promise<string> {
+async function mutationFingerprint<TBody>(input: MutationInput<TBody>): Promise<string> {
   const method = input.method ?? "POST";
   const body = stableValue(input.body ?? null);
   const source = `${method}\n${input.path}\n${body}`;
@@ -228,7 +228,7 @@ export function AdminSessionProvider({ children }: { children: React.ReactNode }
   }, [refreshSession, status]);
 
   const runMutation = useCallback(
-    async <T,>(input: MutationInput): Promise<ApiResult<T>> => {
+    async <T, TBody = unknown>(input: MutationInput<TBody>): Promise<ApiResult<T>> => {
       const fingerprint = await mutationFingerprint(input);
       const idempotencyKey =
         input.idempotency_key ??
