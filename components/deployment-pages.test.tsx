@@ -279,6 +279,31 @@ describe("operator deployment and runtime pages", () => {
     );
   });
 
+  it("requires a safe-redaction minimum before creating a managed secret", async () => {
+    const user = userEvent.setup();
+    renderPage(<SecretFilesPage />);
+    await expect(screen.findByText("database-password")).resolves.toBeVisible();
+    await user.type(screen.getByLabelText("Filename"), "temporary-secret");
+    await user.type(screen.getByLabelText("Secret value"), "abc");
+    await user.type(screen.getByLabelText("Creation reason"), "Create a temporary test credential");
+    const submit = screen.getByRole("button", { name: "Create secret file" });
+    expect(submit).toBeDisabled();
+    expect(mutation).not.toHaveBeenCalled();
+
+    await user.type(screen.getByLabelText("Secret value"), "d");
+    expect(submit).toBeEnabled();
+    await user.click(submit);
+    await waitFor(() =>
+      expect(mutation).toHaveBeenCalledWith(
+        operationMutations.createSecret({
+          name: "temporary-secret",
+          value: "abcd",
+          reason: "Create a temporary test credential",
+        }),
+      ),
+    );
+  });
+
   it("queues a restart through the session step-up path and requires healthy runtime data", async () => {
     const user = userEvent.setup();
     setup({

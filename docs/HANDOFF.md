@@ -3,6 +3,22 @@
 Entries are newest first. Backend contract/implementation evidence is maintained in the sibling
 repository `D:\API - Havenerr`; this continuation was explicitly approved to update both repositories.
 
+## 2026-09-24 - /root - M26 contract audit follow-up
+
+Aligned the Secret Files UI with the backend's enforced safe-redaction input bounds: create/replace
+values require at least four characters per non-empty line and no more than 64 KiB in UTF-8. The
+page validates before sending and the contract matrix records the same request rules. Reveal remains
+one-time, fresh-MFA gated, and transient in component memory.
+
+Verification on Windows / Node 24.11.1: `npm.cmd run typecheck`, `npm.cmd run lint`,
+`npm.cmd run format:check`, `npm.cmd test` (9 files / 34 tests), `npm.cmd run build` with local
+`HAVENERR_ADMIN_UPSTREAM_ORIGIN=http://127.0.0.1:5000`, and `npm.cmd run test:e2e` (36 desktop/mobile
+Playwright tests) passed. Unit/browser requests use fixtures; this does not claim a live Vercel/API
+session or deployment. The pre-existing Dashboard `.env.example` edit is unchanged and excluded.
+
+The sibling backend's fresh-MFA idempotency continuation now uses the same key after the pre-effect
+`STEP_UP_REQUIRED` rejection; no Dashboard retry contract change was needed.
+
 ## 2026-09-24 - Codex - M26 operator UI completion
 
 The user assigned completion of the remaining operator frontend to this continuation and requested

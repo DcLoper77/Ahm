@@ -65,6 +65,20 @@ const cancellableStates = new Set([
 const terminalStates = new Set(["SUCCEEDED", "FAILED", "ROLLED_BACK", "CANCELLED"]);
 const shortSha = (value?: string | null) => (value ? value.slice(0, 12) : "—");
 const formatTime = (value?: string | null) => (value ? new Date(value).toLocaleString() : "—");
+function secretValueError(value: string): string | null {
+  if (value.length < 4) return "Secret values must contain at least 4 characters.";
+  if (new TextEncoder().encode(value).byteLength > 64 * 1024)
+    return "Secret values must be no larger than 64 KiB in UTF-8.";
+  if (
+    value
+      .split(/[\r\n]/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .some((line) => line.length < 4)
+  )
+    return "Each non-empty secret line must contain at least 4 characters.";
+  return null;
+}
 const errorMessage = (error: unknown, fallback: string) =>
   error instanceof Error ? error.message : fallback;
 
@@ -920,6 +934,11 @@ export function SecretFilesPage() {
       setError("Enter a reason with at least 8 characters.");
       return;
     }
+    const valueError = secretValueError(newValue);
+    if (valueError) {
+      setError(valueError);
+      return;
+    }
     setError(null);
     setNotice(null);
     setBusy(true);
@@ -950,6 +969,11 @@ export function SecretFilesPage() {
     }
     if (action.kind !== "reveal" && confirmName !== action.name) {
       setError("Type the exact filename to confirm this action.");
+      return;
+    }
+    const replaceValueError = action.kind === "replace" ? secretValueError(actionValue) : null;
+    if (replaceValueError) {
+      setError(replaceValueError);
       return;
     }
     setError(null);
@@ -1042,11 +1066,12 @@ export function SecretFilesPage() {
             </Field>
             <Field
               label="Secret value"
-              hint="The value is sent once and is not included in the response or audit record."
+              hint="Use at least 4 characters and no more than 64 KiB in UTF-8. The value is sent once and is not included in the response or audit record."
             >
               <TextInput
                 type="password"
                 value={newValue}
+                minLength={4}
                 maxLength={65536}
                 autoComplete="new-password"
                 spellCheck={false}
@@ -1067,7 +1092,7 @@ export function SecretFilesPage() {
               disabled={
                 busy ||
                 newName.trim().length === 0 ||
-                newValue.length === 0 ||
+                Boolean(secretValueError(newValue)) ||
                 newReason.trim().length < 8
               }
             >
@@ -1186,10 +1211,14 @@ export function SecretFilesPage() {
             </Field>
           ) : null}
           {action.kind === "replace" ? (
-            <Field label="New secret value">
+            <Field
+              label="New secret value"
+              hint="Use at least 4 characters and no more than 64 KiB in UTF-8."
+            >
               <TextInput
                 type="password"
                 value={actionValue}
+                minLength={4}
                 maxLength={65536}
                 autoComplete="new-password"
                 spellCheck={false}
@@ -1217,7 +1246,7 @@ export function SecretFilesPage() {
                   busy ||
                   actionReason.trim().length < 8 ||
                   (action.kind !== "reveal" && confirmName !== action.name) ||
-                  (action.kind === "replace" && actionValue.length === 0)
+                  (action.kind === "replace" && Boolean(secretValueError(actionValue)))
                 }
               >
                 {action.kind === "reveal"
