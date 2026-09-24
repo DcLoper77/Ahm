@@ -41,6 +41,10 @@ The build uses a local loopback proxy origin only. Browser tests use mocks, and 
 credentials, Vercel preview, production API, or Linux host was available. Backend-specific runbook,
 worker tests, and exact live gate status are recorded in `D:\API - Havenerr\HANDOFF.md`.
 
+The implementation commit `f8d77a2` was pushed to `origin/feat/admin-control-panel-integration`;
+the sibling backend implementation commit `d4556ff` was pushed to the same-named branch in its
+repository. The pre-existing `.env.example` edit remains unstaged.
+
 ## 2026-09-24 - Codex - dedicated Admin plane reconciliation
 
 Status: frontend implementation and local verification complete and accepted for backend
