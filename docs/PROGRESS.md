@@ -1,3 +1,17 @@
+## 2026-09-27 Admin MFA enrollment UI — implemented and verified
+
+The enrollment page now builds a real QR from the backend `otpauth_uri` in the browser, displays it
+beside clear setup steps, and keeps manual secret/URI entry as a fallback. The MFA panel gets a wider
+desktop layout and stacks at narrower widths. First-login enrollment still uses the backend's
+restricted-session route contract; no backend code or API repository files changed.
+
+Verification: typecheck, lint, build, unit tests (10 files / 36 tests), the existing desktop and
+mobile Playwright suite (36 tests), and the new MFA first-login flow in desktop/mobile Playwright
+(2 tests) passed. Changed-file Prettier checks passed. The repository-wide format check flags the
+unchanged `docs/ADMIN_API_CONTRACT_MATRIX.md`, which is already unformatted at HEAD. Playwright
+screenshots were inspected at both viewport sizes. Upstream calls use fixtures; no live MFA
+enrollment or production/API session was claimed. Claim released.
+
 # Havenerr Admin Control Panel progress
 
 ## 2026-09-24 M26 operator controls — local implementation complete; host gate open

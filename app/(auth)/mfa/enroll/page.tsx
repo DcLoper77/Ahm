@@ -1,7 +1,9 @@
 "use client";
 
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
+import QRCode from "qrcode";
 import { AdminApiError } from "@/lib/admin/errors";
 import { useAdminSession } from "@/components/auth/session-context";
 import { Button, Card, CopyValue, Field, InlineAlert, TextInput } from "@/components/ui";
@@ -12,6 +14,8 @@ export default function MfaEnrollPage() {
   const [enrollment, setEnrollment] = useState<{ secret: string; otpauth_uri: string } | null>(
     null,
   );
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+  const [qrError, setQrError] = useState(false);
   const [recoveryCodes, setRecoveryCodes] = useState<string[] | null>(null);
   const [code, setCode] = useState("");
   const [loading, setLoading] = useState(false);
@@ -20,6 +24,10 @@ export default function MfaEnrollPage() {
 
   const loadEnrollment = useCallback(async () => {
     setError(null);
+    setEnrollment(null);
+    setQrDataUrl(null);
+    setQrError(false);
+    setCode("");
     setEnrollmentLoading(true);
     try {
       const result = await runMutation<{ secret: string; otpauth_uri: string }>({
@@ -38,6 +46,27 @@ export default function MfaEnrollPage() {
       setEnrollmentLoading(false);
     }
   }, [runMutation]);
+
+  useEffect(() => {
+    if (!enrollment?.otpauth_uri) return;
+    let cancelled = false;
+    void QRCode.toDataURL(enrollment.otpauth_uri, {
+      errorCorrectionLevel: "M",
+      margin: 2,
+      width: 240,
+      color: { dark: "#111827", light: "#ffffff" },
+    }).then(
+      (dataUrl) => {
+        if (!cancelled) setQrDataUrl(dataUrl);
+      },
+      () => {
+        if (!cancelled) setQrError(true);
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [enrollment?.otpauth_uri]);
 
   useEffect(() => {
     if (status === "unauthenticated") router.replace("/login");
@@ -95,7 +124,7 @@ export default function MfaEnrollPage() {
   };
 
   return (
-    <div className="auth-page">
+    <div className="auth-page mfa-enroll-page">
       <section className="auth-visual">
         <div className="auth-brand">
           <span className="brand-mark">H</span>
@@ -116,7 +145,7 @@ export default function MfaEnrollPage() {
         </div>
       </section>
       <section className="auth-panel">
-        <div className="auth-card">
+        <div className={`auth-card${recoveryCodes ? "" : " mfa-enroll-card"}`}>
           <div className="auth-progress">
             <span className="is-active" />
             <span className="is-active" />
@@ -149,8 +178,8 @@ export default function MfaEnrollPage() {
             <>
               <h2>Enroll MFA</h2>
               <p>
-                Scan the setup URI with your authenticator, then confirm with the six digit code it
-                generates.
+                Add an authenticator app to protect your administrator account, then confirm it with
+                a current six digit code.
               </p>
               {error ? (
                 <InlineAlert tone="danger" title="MFA setup was not completed">
@@ -166,60 +195,91 @@ export default function MfaEnrollPage() {
                   Retry MFA setup
                 </Button>
               ) : null}
-              <Card className="mfa-card">
-                <div className="qr-placeholder" aria-hidden="true">
-                  Authenticator setup
+              <div className="mfa-enrollment-layout">
+                <Card className="mfa-qr-panel">
+                  <div className="mfa-qr-frame" aria-live="polite">
+                    {qrDataUrl ? (
+                      <Image
+                        className="mfa-qr-image"
+                        src={qrDataUrl}
+                        alt="Authenticator setup QR code"
+                        width={240}
+                        height={240}
+                        unoptimized
+                      />
+                    ) : (
+                      <span>
+                        {enrollmentLoading || (enrollment && !qrError)
+                          ? "Preparing secure QR code…"
+                          : "QR code unavailable"}
+                      </span>
+                    )}
+                  </div>
+                  <strong>Scan with your authenticator</strong>
+                  <p>
+                    Open Google Authenticator or another TOTP app and scan this code. It is
+                    generated in this browser and is not sent to a QR service.
+                  </p>
+                </Card>
+                <div className="mfa-enrollment-details">
+                  <ol className="mfa-setup-steps">
+                    <li>Scan the QR code, or enter the setup key manually.</li>
+                    <li>Enter the current six digit code from your authenticator.</li>
+                    <li>Save the recovery codes shown after confirmation.</li>
+                  </ol>
+                  <Card className="mfa-card">
+                    <Field
+                      label="Setup key"
+                      hint="Keep this key private. It can generate codes for your account."
+                      staticContent
+                    >
+                      <CopyValue
+                        value={
+                          enrollment?.secret ??
+                          (enrollmentLoading ? "Loading setup key…" : "MFA setup unavailable")
+                        }
+                        label="Copy setup key"
+                      />
+                    </Field>
+                    {qrError && enrollment ? (
+                      <InlineAlert tone="warning" title="QR code unavailable">
+                        Enter the setup key above manually in your authenticator app.
+                      </InlineAlert>
+                    ) : null}
+                    {enrollment ? (
+                      <details className="mfa-uri-fallback">
+                        <summary>Use the setup URI instead</summary>
+                        <CopyValue value={enrollment.otpauth_uri} label="Copy authenticator URI" />
+                      </details>
+                    ) : null}
+                  </Card>
+                  <form className="auth-form" onSubmit={(event) => void confirm(event)}>
+                    <Field label="Confirmation code" htmlFor="mfa-code">
+                      <TextInput
+                        id="mfa-code"
+                        value={code}
+                        onChange={(event) =>
+                          setCode(event.target.value.replace(/\D/g, "").slice(0, 6))
+                        }
+                        inputMode="numeric"
+                        pattern="[0-9]{6}"
+                        autoComplete="one-time-code"
+                        placeholder="000000"
+                        required
+                      />
+                    </Field>
+                    <Button
+                      type="submit"
+                      variant="primary"
+                      loading={loading}
+                      disabled={!enrollment || enrollmentLoading}
+                      className="auth-submit"
+                    >
+                      Confirm MFA
+                    </Button>
+                  </form>
                 </div>
-                <Field
-                  label="Setup secret"
-                  hint="Keep this value private and do not paste it into support channels."
-                  staticContent
-                >
-                  <CopyValue
-                    value={
-                      enrollment?.secret ??
-                      (enrollmentLoading ? "Loading setup secret…" : "MFA setup unavailable")
-                    }
-                    label="Copy setup secret"
-                  />
-                </Field>
-                <Field
-                  label="Authenticator URI"
-                  hint="Use this only in an approved authenticator."
-                  staticContent
-                >
-                  <CopyValue
-                    value={
-                      enrollment?.otpauth_uri ??
-                      (enrollmentLoading ? "Loading setup URI…" : "MFA setup unavailable")
-                    }
-                    label="Copy authenticator URI"
-                  />
-                </Field>
-              </Card>
-              <form className="auth-form" onSubmit={(event) => void confirm(event)}>
-                <Field label="Confirmation code" htmlFor="mfa-code">
-                  <TextInput
-                    id="mfa-code"
-                    value={code}
-                    onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
-                    inputMode="numeric"
-                    pattern="[0-9]{6}"
-                    autoComplete="one-time-code"
-                    placeholder="000000"
-                    required
-                  />
-                </Field>
-                <Button
-                  type="submit"
-                  variant="primary"
-                  loading={loading}
-                  disabled={!enrollment || enrollmentLoading}
-                  className="auth-submit"
-                >
-                  Confirm MFA
-                </Button>
-              </form>
+              </div>
             </>
           )}
         </div>

@@ -3,6 +3,29 @@
 Entries are newest first. Backend contract/implementation evidence is maintained in the sibling
 repository `D:\API - Havenerr`; this continuation was explicitly approved to update both repositories.
 
+## 2026-09-27 - /root - Admin MFA enrollment QR and layout
+
+Replaced the decorative MFA placeholder with a real QR generated from the API-provided
+`otpauth_uri` using the local `qrcode` package. The QR data URL stays in component memory and is not
+sent to a QR service. The page now places the QR beside numbered setup instructions, supports
+manual setup-key and URI entry if QR generation fails, and uses a responsive layout that fits
+desktop and mobile widths. Added focused component coverage and a Playwright flow for invited
+first-login enrollment through recovery-code display and console entry.
+
+Changed files: `app/(auth)/mfa/enroll/page.tsx`, `app/(auth)/mfa/enroll/page.test.tsx`,
+`app/globals.css`, `e2e/admin-mfa-enrollment.spec.ts`, `package.json`, `package-lock.json`,
+`docs/PROGRESS.md`, and this handoff. The sibling API repo had pre-existing dirty handoff/progress
+and `PROMPT_TEMPLATE.md` edits; they were left untouched. No backend source, customer data, or live
+MFA session was changed.
+
+Verification: `npm.cmd run typecheck`, `npm.cmd run lint`, changed-file Prettier checks,
+`npm.cmd test` (10 files / 36 tests), and `npm.cmd run build` with
+`HAVENERR_ADMIN_UPSTREAM_ORIGIN=http://127.0.0.1:5000` passed. Existing Playwright checks passed
+(36 desktop/mobile tests); the new first-login MFA flow passed on desktop and mobile (2 tests).
+Screenshots were visually checked. Repo-wide `npm.cmd run format:check` reports the unchanged,
+pre-existing formatting issue in `docs/ADMIN_API_CONTRACT_MATRIX.md`. Playwright uses mocked API
+responses and does not prove a live provider/API enrollment. Push target: `origin/main`, as requested.
+
 ## 2026-09-24 - /root - M26 contract audit follow-up
 
 Aligned the Secret Files UI with the backend's enforced safe-redaction input bounds: create/replace

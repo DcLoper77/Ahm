@@ -1474,6 +1474,9 @@ a.stat-card:hover {
   min-height: 100vh;
   background: var(--canvas);
 }
+.mfa-enroll-page {
+  grid-template-columns: minmax(320px, 0.78fr) minmax(0, 1.22fr);
+}
 .auth-visual {
   position: relative;
   display: flex;
@@ -1642,20 +1645,86 @@ a.stat-card:hover {
   font-size: 11px;
   text-align: center;
 }
-.qr-placeholder {
+.mfa-enroll-card {
+  width: min(100%, 760px);
+}
+.mfa-enrollment-layout {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.78fr) minmax(280px, 1.22fr);
+  align-items: start;
+  gap: 18px;
+}
+.mfa-qr-panel {
+  display: grid;
+  justify-items: center;
+  gap: 9px;
+  padding: 18px;
+  text-align: center;
+}
+.mfa-qr-panel strong {
+  color: var(--ink);
+  font-size: 13px;
+}
+.mfa-qr-panel p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.55;
+}
+.mfa-qr-frame {
   display: grid;
   place-items: center;
-  width: 180px;
-  height: 180px;
-  margin: 0 auto 8px;
+  width: 100%;
+  min-height: 240px;
+  padding: 8px;
   color: var(--muted);
-  background: repeating-conic-gradient(#1d1d1f 0 25%, #fff 0 50%) 50% / 18px 18px;
-  border: 9px solid #fff;
-  outline: 1px solid var(--line-strong);
-  border-radius: 9px;
-  font-size: 0;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-size: 11px;
 }
-
+.mfa-qr-image {
+  display: block;
+  width: min(100%, 240px);
+  height: auto;
+  image-rendering: pixelated;
+}
+.mfa-enrollment-details {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+.mfa-setup-steps {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0 0 0 24px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.mfa-setup-steps li::marker {
+  color: var(--blue);
+  font-weight: 700;
+}
+.mfa-uri-fallback {
+  display: grid;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.mfa-uri-fallback summary {
+  width: fit-content;
+  color: var(--blue);
+  cursor: pointer;
+}
+.mfa-uri-fallback .copy-value {
+  min-width: 0;
+}
+.mfa-uri-fallback .copy-value code {
+  overflow-wrap: anywhere;
+}
 .shell-loading {
   display: grid;
   place-items: center;
@@ -1759,6 +1828,9 @@ a.stat-card:hover {
   .stat-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+  .mfa-enrollment-layout {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 900px) {
@@ -1854,6 +1926,12 @@ a.stat-card:hover {
   .auth-panel {
     min-height: calc(100vh - 370px);
     padding: 50px 9vw;
+  }
+  .mfa-enrollment-layout {
+    grid-template-columns: 1fr;
+  }
+  .mfa-qr-frame {
+    width: min(100%, 256px);
   }
 }
 
