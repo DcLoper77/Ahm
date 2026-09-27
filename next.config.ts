@@ -8,12 +8,14 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
   reactStrictMode: true,
   async rewrites() {
-    return [
-      {
-        source: "/admin/v1/:path*",
-        destination: `${adminApiUpstream}/admin/v1/:path*`,
-      },
-    ];
+    return {
+      beforeFiles: [
+        {
+          source: "/admin/v1/:path*",
+          destination: `${adminApiUpstream}/admin/v1/:path*`,
+        },
+      ],
+    };
   },
   async headers() {
     return [
