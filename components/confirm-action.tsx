@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Icon } from "./icons";
 import { Button, Field, InlineAlert, Modal, ModalForm, TextArea, TextInput } from "./ui";
 
 export function ConfirmActionModal({
@@ -89,10 +90,10 @@ export function ConfirmActionModal({
       >
         {dangerous || moneyMoving ? (
           <div className="danger-callout">
-            <span>{moneyMoving ? "Money-moving action" : "Destructive action"}</span>
+            <Icon name="alert" size={16} />
             <div>
-              <strong>Review before you continue.</strong>
-              <span>{target} will be changed through a durable, audited admin operation.</span>
+              <strong>{moneyMoving ? "Money-moving action" : "Destructive action"}</strong>
+              <span>Review before you continue. {target} will be changed through a durable, audited admin operation.</span>
             </div>
           </div>
         ) : null}

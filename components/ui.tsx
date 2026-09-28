@@ -102,7 +102,7 @@ export function PageHeader({
 }) {
   return (
     <div className="page-header">
-      <div>
+      <div className="page-header-copy">
         {eyebrow ? <p className="eyebrow">{eyebrow}</p> : null}
         <h1>{title}</h1>
         {description ? <p className="page-description">{description}</p> : null}
@@ -482,8 +482,11 @@ export function StatCard({
 }) {
   const content = (
     <>
-      <div className={`stat-icon stat-icon-${tone}`}>
-        <Icon name={icon} size={19} />
+      <div className="stat-header">
+        <div className={`stat-icon stat-icon-${tone}`}>
+          <Icon name={icon} size={18} />
+        </div>
+        {href ? <Icon name="arrow-right" className="stat-arrow" size={15} /> : null}
       </div>
       <div className="stat-copy">
         <span className="stat-label">{label}</span>
@@ -495,7 +498,6 @@ export function StatCard({
   return href ? (
     <Link href={href} className="stat-card">
       {content}
-      <Icon name="arrow-right" className="stat-arrow" size={16} />
     </Link>
   ) : (
     <div className="stat-card">{content}</div>

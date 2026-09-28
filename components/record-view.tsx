@@ -10,6 +10,7 @@ import {
   safeScalar,
 } from "@/lib/admin/format";
 import { Badge, Card, DetailRows, StatusBadge } from "./ui";
+import { Icon } from "./icons";
 import type { AdminRecord } from "@/lib/admin/types";
 
 export function RecordFacts({
@@ -88,6 +89,7 @@ export function ResourceLink({ href, label, id }: { href: string; label: string;
     <Link href={href} className="resource-link">
       <span>{label}</span>
       {id ? <code>{id}</code> : null}
+      <Icon name="chevron-right" size={14} />
     </Link>
   );
 }

@@ -101,6 +101,9 @@ function LoginContent() {
             <span className="auth-signal">
               <span className="status-dot status-dot-blue" /> Audit aware
             </span>
+            <span className="auth-signal">
+              <span className="status-dot status-dot-green" /> MFA protected
+            </span>
           </div>
         </div>
         <div className="auth-visual-footer">

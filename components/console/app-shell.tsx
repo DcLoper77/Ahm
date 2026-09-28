@@ -288,7 +288,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
           <div className="topbar-right">
             <div className="topbar-health">
-              <span className="status-dot status-dot-blue" />
+              <span className="status-dot status-dot-green" />
               <span>Session active</span>
             </div>
             <div className="topbar-divider" />
@@ -298,7 +298,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <strong>{admin.email}</strong>
                 <small>{roleSummary(admin.roles)}</small>
               </span>
-              <Icon name="chevron-down" size={14} />
             </div>
             <Button
               variant="quiet"
