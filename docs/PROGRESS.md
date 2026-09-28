@@ -1,3 +1,20 @@
+## 2026-09-28 M26 systemd operations — live Admin pages verified
+
+Dashboard commit 096a5e6 is on origin/main and the production Vercel panel includes the updated
+systemd status/restart experience. Using the existing authenticated Admin session, live Deploy,
+Configuration, Secret Files, and Runtime pages all loaded. Runtime showed the backend service
+active/enabled, readiness ready, and matching active/served commit 8a49cc8. Deploy showed the
+operations worker active and the current main release up to date; Configuration loaded the saved
+revision; Secret Files listed metadata with all values hidden. Unauthenticated operational API
+requests returned 401, preserving the backend Admin authorization boundary.
+
+Local verification: typecheck, lint, build, 37 unit tests, 34 targeted desktop/mobile Playwright
+checks, and changed-file Prettier checks passed. No config/secret mutation, reveal, or live deploy
+action was submitted. The Admin deployment history is empty because this release was transferred
+and activated through the reviewed VPS release procedure rather than initiated by an Admin UI
+operation. See the sibling API repository for backend and host evidence. M26 remains partial until
+the live Admin-triggered deployment and remaining security rehearsals pass.
+
 ## 2026-09-27 Admin MFA enrollment UI — implemented and verified
 
 The enrollment page now builds a real QR from the backend `otpauth_uri` in the browser, displays it

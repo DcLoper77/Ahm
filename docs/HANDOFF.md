@@ -3,6 +3,23 @@
 Entries are newest first. Backend contract/implementation evidence is maintained in the sibling
 repository `D:\API - Havenerr`; this continuation was explicitly approved to update both repositories.
 
+## 2026-09-28 - /root - Live Admin operations verified with systemd backend
+
+The Dashboard systemd operations changes are committed as 096a5e6 and pushed to origin/main. The
+live Vercel panel now loads Deploy, Configuration, Secret Files, and Runtime through the existing
+authenticated Admin session. Runtime visibly reports havenerr-backend.service active/enabled,
+readiness ready, and a matching active/served revision 8a49cc8. Deploy shows the systemd worker
+active and production up to date; Configuration displays its saved revision; Secret Files displays
+managed file metadata while values remain hidden. The backend’s unauthenticated operations routes
+return 401, confirming the existing authorization boundary remains active.
+
+Verification: typecheck, lint, production build, 37 unit tests, 34 targeted desktop/mobile Playwright
+checks, and changed-file formatting checks passed. The global format check still reports the
+existing unrelated formatting issue in the API contract matrix. No configuration or secret values
+were changed/revealed, and no deployment action was submitted through the UI; Deploy history is
+therefore empty. The backend live-install details and remaining M26 gates are recorded in the
+sibling API handoff.
+
 ## 2026-09-27 - /root - Admin MFA enrollment QR and layout
 
 Replaced the decorative MFA placeholder with a real QR generated from the API-provided
