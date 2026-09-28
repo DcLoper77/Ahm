@@ -49,5 +49,23 @@ describe("Admin API server-only upstream configuration", () => {
         VERCEL_ENV: "preview",
       }),
     ).toThrow(/HTTPS/);
+    expect(
+      resolveAdminApiUpstream({
+        HAVENERR_ADMIN_UPSTREAM_ORIGIN: "http://api.havenerr.com",
+        VERCEL: "1",
+        VERCEL_ENV: "production",
+      }),
+    ).toBe("https://api.havenerr.com");
+    expect(
+      resolveAdminApiUpstream({
+        HAVENERR_ADMIN_UPSTREAM_ORIGIN: "http://api.havenerr.com",
+      }),
+    ).toBe("https://api.havenerr.com");
+    expect(
+      resolveAdminApiUpstream({
+        VERCEL: "1",
+        VERCEL_ENV: "production",
+      }),
+    ).toBe("https://api.havenerr.com");
   });
 });

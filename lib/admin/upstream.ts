@@ -4,11 +4,23 @@ const PRODUCTION_ADMIN_API_ORIGIN = "https://api.havenerr.com";
  * receives this value; production is pinned to the documented API host and only local loopback
  * may use HTTP during development. */
 export function resolveAdminApiUpstream(env: Readonly<Record<string, string | undefined>>): string {
-  const raw = env.HAVENERR_ADMIN_UPSTREAM_ORIGIN;
+  let raw = env.HAVENERR_ADMIN_UPSTREAM_ORIGIN?.trim();
   if (!raw) {
+    if (env.VERCEL_ENV === "production") {
+      return PRODUCTION_ADMIN_API_ORIGIN;
+    }
     throw new Error(
       "HAVENERR_ADMIN_UPSTREAM_ORIGIN is required. Set it to http://127.0.0.1:5000 for local development or https://api.havenerr.com in Vercel production.",
     );
+  }
+
+  if (
+    raw === "http://api.havenerr.com" ||
+    raw === "http://api.havenerr.com/" ||
+    raw === "https://api.havenerr.com/" ||
+    raw === "api.havenerr.com"
+  ) {
+    raw = PRODUCTION_ADMIN_API_ORIGIN;
   }
 
   let parsed: URL;
@@ -16,6 +28,10 @@ export function resolveAdminApiUpstream(env: Readonly<Record<string, string | un
     parsed = new URL(raw);
   } catch {
     throw new Error("HAVENERR_ADMIN_UPSTREAM_ORIGIN must be an absolute HTTP(S) origin.");
+  }
+
+  if (parsed.hostname === "api.havenerr.com" && parsed.protocol === "http:") {
+    parsed.protocol = "https:";
   }
 
   if (parsed.origin !== raw || parsed.username || parsed.password || parsed.search || parsed.hash) {
