@@ -76,7 +76,23 @@ function setup(
             built_at: "2026-09-23T10:00:00.000Z",
             branch: "main",
           },
-          pm2: { status: "online", pid: 12, uptime_ms: 20_000 },
+          systemd: {
+            service_name: "havenerr-backend.service",
+            status: "active",
+            sub_state: "running",
+            pid: 12,
+            uptime_ms: 20_000,
+            restart_count: 0,
+            unit_file_state: "enabled",
+          },
+          operations_worker: {
+            service_name: "havenerr-ops-worker.service",
+            status: "active",
+            sub_state: "running",
+            pid: 13,
+            restart_count: 0,
+            unit_file_state: "enabled",
+          },
           readiness: "ready",
           serving_commit: currentSha,
           revision_matches_active: true,
@@ -92,7 +108,23 @@ function setup(
             built_at: "2026-09-23T10:00:00.000Z",
             branch: "main",
           },
-          pm2: { status: "online", pid: 12, uptime_ms: 20_000 },
+          systemd: {
+            service_name: "havenerr-backend.service",
+            status: "active",
+            sub_state: "running",
+            pid: 12,
+            uptime_ms: 20_000,
+            restart_count: 0,
+            unit_file_state: "enabled",
+          },
+          operations_worker: {
+            service_name: "havenerr-ops-worker.service",
+            status: "active",
+            sub_state: "running",
+            pid: 13,
+            restart_count: 0,
+            unit_file_state: "enabled",
+          },
           readiness: "ready",
           serving_commit: currentSha,
           revision_matches_active: true,
@@ -331,5 +363,17 @@ describe("operator deployment and runtime pages", () => {
     await expect(
       screen.findByText(/Restart completed\. Readiness is restored/),
     ).resolves.toBeVisible();
+  });
+
+  it("surfaces an unavailable runtime route instead of retrying forever", async () => {
+    const session = mockState.session as {
+      api: { operations: { runtime: ReturnType<typeof vi.fn> } };
+    };
+    session.api.operations.runtime.mockRejectedValue(
+      new Error("The runtime route is unavailable."),
+    );
+    renderPage(<RuntimePage />);
+    await expect(screen.findByText("Unable to load this view")).resolves.toBeVisible();
+    expect(screen.queryByText("Connecting to the Havenerr runtime")).toBeNull();
   });
 });

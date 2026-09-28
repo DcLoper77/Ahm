@@ -5,6 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useAdminSession } from "@/components/auth/session-context";
 import { ConfirmActionModal } from "@/components/confirm-action";
 import { QueryError, QueryLoading } from "@/components/data-states";
+import { AdminApiError } from "@/lib/admin/errors";
 import { useAdminQuery } from "@/lib/admin/hooks";
 import { operationMutations } from "@/lib/admin/api";
 import { hasPermission } from "@/lib/admin/rbac";
@@ -79,6 +80,8 @@ function secretValueError(value: string): string | null {
     return "Each non-empty secret line must contain at least 4 characters.";
   return null;
 }
+const retryTransientAdminRead = (failureCount: number, error: unknown) =>
+  failureCount < 2 && error instanceof AdminApiError && error.retryable;
 const errorMessage = (error: unknown, fallback: string) =>
   error instanceof Error ? error.message : fallback;
 
@@ -215,8 +218,18 @@ export function DeployPage() {
     );
   if (status.isLoading && !status.data) return <QueryLoading label="Loading production runtime" />;
 
+  const operationsWorkerReady =
+    status.data?.data.operations_worker.status === "active" &&
+    status.data.data.operations_worker.unit_file_state === "enabled";
   const deployAvailable = Boolean(
-    canWrite && current && preview && !preview.diverged && preview.ahead !== 0 && !active && !busy,
+    canWrite &&
+    operationsWorkerReady &&
+    current &&
+    preview &&
+    !preview.diverged &&
+    preview.ahead !== 0 &&
+    !active &&
+    !busy,
   );
   const showReconnect = Boolean(status.error || remote.error || history.error);
 
@@ -238,6 +251,12 @@ export function DeployPage() {
       {status.error && !status.data ? (
         <QueryError error={status.error} onRetry={() => void status.refetch()} />
       ) : null}
+      {status.data && !operationsWorkerReady ? (
+        <InlineAlert tone="warning" title="Deployment worker unavailable">
+          The Havenerr operations worker is not active. Deployment, rollback, and restart requests
+          are disabled until its systemd service recovers.
+        </InlineAlert>
+      ) : null}
 
       <div className="detail-grid">
         <Card>
@@ -245,7 +264,8 @@ export function DeployPage() {
           {current ? (
             <>
               <p>
-                <StatusBadge value={status.data?.data.pm2.status ?? "UNKNOWN"} /> PM2 process
+                <StatusBadge value={status.data?.data.systemd.status ?? "UNKNOWN"} /> systemd
+                service
               </p>
               <p>
                 Commit <strong className="mono">{current.commit_sha}</strong>
@@ -255,8 +275,8 @@ export function DeployPage() {
               </p>
               <p>
                 Built {formatTime(current.built_at)} · Uptime{" "}
-                {status.data?.data.pm2.uptime_ms
-                  ? `${Math.floor(status.data.data.pm2.uptime_ms / 1000)} seconds`
+                {status.data?.data.systemd.uptime_ms
+                  ? `${Math.floor(status.data.data.systemd.uptime_ms / 1000)} seconds`
                   : "—"}
               </p>
               <p>
@@ -265,9 +285,17 @@ export function DeployPage() {
               </p>
               {status.data?.data.revision_matches_active === false ? (
                 <InlineAlert tone="warning">
-                  The PM2 process is not yet serving the release selected by the current pointer.
+                  The systemd service is not yet serving the release selected by the current
+                  pointer.
                 </InlineAlert>
               ) : null}
+              <p>
+                Deployment worker{" "}
+                <StatusBadge value={status.data?.data.operations_worker.status ?? "UNKNOWN"} />
+                {status.data?.data.operations_worker.restart_count
+                  ? ` · ${status.data.data.operations_worker.restart_count} restarts`
+                  : ""}
+              </p>
             </>
           ) : (
             <InlineAlert tone="warning">
@@ -433,6 +461,7 @@ export function DeployPage() {
                 item.release_id ? (
                   <Button
                     variant="secondary"
+                    disabled={!operationsWorkerReady}
                     onClick={() => {
                       setRollbackTarget(item);
                       setRollbackConfirmation("");
@@ -530,7 +559,11 @@ export function DeployPage() {
             <Button
               variant="danger"
               loading={busy}
-              disabled={rollbackConfirmation !== "ROLLBACK" || rollbackReason.trim().length < 8}
+              disabled={
+                !operationsWorkerReady ||
+                rollbackConfirmation !== "ROLLBACK" ||
+                rollbackReason.trim().length < 8
+              }
               onClick={() => {
                 setBusy(true);
                 void runMutation<OperationAccepted, DeploymentRollbackBody>(
@@ -1276,12 +1309,12 @@ export function RuntimePage() {
   const runtime = useAdminQuery(["ops", "runtime"], (api) => api.operations.runtime(), {
     enabled: canRead,
     refetchInterval: 2000,
-    retry: true,
+    retry: retryTransientAdminRead,
   });
   const history = useAdminQuery(["deploy", "history"], (api) => api.operations.history(), {
     enabled: canRead,
     refetchInterval: 5000,
-    retry: true,
+    retry: retryTransientAdminRead,
   });
   const [selectedOperationId, setSelectedOperationId] = useState<string | null>(null);
   const [confirmRestart, setConfirmRestart] = useState(false);
@@ -1296,7 +1329,7 @@ export function RuntimePage() {
     {
       enabled: canRead && Boolean(operationId),
       refetchInterval: 2000,
-      retry: true,
+      retry: retryTransientAdminRead,
     },
   );
 
@@ -1308,6 +1341,9 @@ export function RuntimePage() {
   const status = runtime.data?.data;
   const currentOperation =
     operation.data?.data ?? (active?.id === operationId ? active : undefined);
+  const operationsWorkerReady =
+    status?.operations_worker.status === "active" &&
+    status.operations_worker.unit_file_state === "enabled";
   const apiUnavailable = Boolean(runtime.error);
 
   return (
@@ -1315,7 +1351,7 @@ export function RuntimePage() {
       <PageHeader
         eyebrow="System"
         title="Runtime and restart"
-        description="Restart the one configured Havenerr PM2 process, then wait for readiness and exact revision confirmation."
+        description="Inspect the Havenerr systemd service, then wait for readiness and exact revision confirmation after a restart."
         actions={
           <Button
             onClick={() => {
@@ -1335,13 +1371,23 @@ export function RuntimePage() {
       ) : null}
       {status ? (
         <Card>
-          <h3>Serving process</h3>
+          <h3>Backend service</h3>
           <p>
-            <StatusBadge value={status.pm2.status} /> · PID {status.pm2.pid || "—"}
+            <StatusBadge value={status.systemd.status} /> · {status.systemd.service_name} · boot{" "}
+            {status.systemd.unit_file_state} · PID {status.systemd.pid || "—"}
           </p>
           <p>
             Readiness <StatusBadge value={status.readiness} /> · Uptime{" "}
-            {status.pm2.uptime_ms ? `${Math.floor(status.pm2.uptime_ms / 1000)} seconds` : "—"}
+            {status.systemd.uptime_ms
+              ? `${Math.floor(status.systemd.uptime_ms / 1000)} seconds`
+              : "—"}
+          </p>
+          <p>
+            Operations worker <StatusBadge value={status.operations_worker.status} /> ·{" "}
+            {status.operations_worker.service_name}· boot {status.operations_worker.unit_file_state}
+            {status.operations_worker.restart_count
+              ? ` · ${status.operations_worker.restart_count} restarts`
+              : ""}
           </p>
           <p>
             Current release {shortSha(status.active?.commit_sha)} · Process serves{" "}
@@ -1357,7 +1403,7 @@ export function RuntimePage() {
           </p>
           {status.revision_matches_active === false ? (
             <InlineAlert tone="danger">
-              PM2 is not serving the release selected by the current pointer.
+              The systemd service is not serving the release selected by the current pointer.
             </InlineAlert>
           ) : null}
         </Card>
@@ -1403,7 +1449,12 @@ export function RuntimePage() {
         </p>
         <Button
           variant="primary"
-          disabled={!canRestart || busy || Boolean(active && !terminalStates.has(active.state))}
+          disabled={
+            !canRestart ||
+            !operationsWorkerReady ||
+            busy ||
+            Boolean(active && !terminalStates.has(active.state))
+          }
           onClick={() => setConfirmRestart(true)}
         >
           Restart backend
@@ -1413,8 +1464,8 @@ export function RuntimePage() {
       {confirmRestart ? (
         <ConfirmActionModal
           title="Restart Havenerr backend"
-          target={`${status?.pm2.status ?? "Unknown process"} · ${shortSha(status?.active?.commit_sha)}`}
-          description="The configured single PM2 process will restart. Saved runtime configuration and secret-file changes will become active."
+          target={`${status?.systemd.service_name ?? "Unknown service"} · ${shortSha(status?.active?.commit_sha)}`}
+          description="Only the configured Havenerr systemd service will restart. Saved runtime configuration and managed secret-file changes will become active."
           actionLabel="Queue restart"
           reasonHint="Enter at least 8 characters."
           onClose={() => setConfirmRestart(false)}

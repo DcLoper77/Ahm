@@ -158,7 +158,7 @@ export const NAV_SECTIONS: NavSection[] = [
       {
         href: "/system/runtime",
         label: "Runtime",
-        description: "PM2 status and restart",
+        description: "systemd status and restart",
         icon: "pulse",
         permissions: ["deploy.read"],
       },

@@ -340,7 +340,23 @@ export interface DeploymentOperation {
 
 export interface RuntimeStatus {
   active: { release_id: string; commit_sha: string; built_at: string; branch: string } | null;
-  pm2: { status: string; pid: number; uptime_ms: number | null };
+  systemd: {
+    service_name: string;
+    status: string;
+    sub_state: string;
+    pid: number;
+    uptime_ms: number | null;
+    restart_count: number;
+    unit_file_state: string;
+  };
+  operations_worker: {
+    service_name: string;
+    status: string;
+    sub_state: string;
+    pid: number;
+    restart_count: number;
+    unit_file_state: string;
+  };
   readiness: string;
   serving_commit: string | null;
   revision_matches_active: boolean;
